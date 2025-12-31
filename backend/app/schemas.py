@@ -81,6 +81,8 @@ class HealthResponse(BaseModel):
 
 
 class EventResponse(BaseModel):
+    id: Optional[str] = None
     event_name: str
+    submission_id: Optional[str] = None
     timestamp: datetime
     payload: Optional[Any]

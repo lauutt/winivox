@@ -455,6 +455,11 @@ select {
   animation: pulse 2s infinite;
 }
 
+.live-dot.connecting {
+  background: #b77b2f;
+  animation: pulse 1.4s infinite;
+}
+
 .live-dot.paused {
   background: #c9bba8;
   animation: none;

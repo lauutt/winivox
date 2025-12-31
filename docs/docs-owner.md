@@ -37,6 +37,9 @@ Es la referencia para decidir que falta y que esta listo.
 - Checklist E2E y troubleshooting en `docs/troubleshooting.md`.
 - Feed incluye sleep timer para modo radio nocturno.
 - Library permite filtrar por status (All/Processing/Approved/Rejected/Quarantined).
+- Library usa SSE para updates en tiempo real (fallback a polling).
+- MinIO init usa script dedicado `infra/minio-init.sh` con CORS por bucket.
+- Script E2E rapido: `scripts/verify-e2e.sh`.
 
 ## Servicios
 
@@ -59,6 +62,7 @@ Es la referencia para decidir que falta y que esta listo.
 - `GET /feed/tags`
 - `POST /votes`
 - `GET /events`
+- `GET /events/stream` (SSE)
 
 ## Pipeline (worker)
 
@@ -93,6 +97,7 @@ Estados:
 - `MINIO_PUBLIC_BUCKET`
 - `MINIO_ARTIFACTS_BUCKET`
 - `MINIO_API_CORS_ALLOW_ORIGIN`
+- `MINIO_CORS_ORIGINS`
 - `JWT_SECRET`
 - `OPENAI_API_KEY`
 - `OPENAI_TRANSCRIBE_MODEL`

@@ -1,6 +1,7 @@
 # Eventos del sistema (PoC)
 
 Formato base:
+- id
 - event_name
 - event_version
 - submission_id
@@ -28,3 +29,8 @@ Formato base:
 
 - `GET /events` (requiere auth, devuelve eventos del usuario)
 - `GET /events?submission_id=...` (requiere auth)
+- `GET /events/stream?token=...&since=...` (SSE, realtime)
+
+Notas:
+- `token` es el access token (query param para EventSource).
+- `since` acepta ISO-8601 (ej: `1970-01-01T00:00:00Z`) y sirve para volver a emitir desde un punto.

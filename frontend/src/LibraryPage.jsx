@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
 import Layout from "./components/Layout.jsx";
 import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
@@ -24,18 +24,24 @@ function LibraryPage() {
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submissionsError, setSubmissionsError] = useState("");
-  const [polling, setPolling] = useState(false);
+  const [hasPending, setHasPending] = useState(false);
+  const [liveState, setLiveState] = useState("idle");
+  const [streamError, setStreamError] = useState("");
+  const [pollingFallback, setPollingFallback] = useState(false);
   const [eventsById, setEventsById] = useState({});
   const [timelineOpen, setTimelineOpen] = useState({});
   const [eventsLoading, setEventsLoading] = useState({});
   const [eventsError, setEventsError] = useState({});
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [lastEventAt, setLastEventAt] = useState(null);
   const [healthStatus, setHealthStatus] = useState({
     loading: true,
     error: "",
     data: null
   });
   const [statusFilter, setStatusFilter] = useState("all");
+  const refreshTimerRef = useRef(null);
+  const streamRef = useRef(null);
 
   const headers = useMemo(() => authHeaders(token), [token]);
 
@@ -46,15 +52,27 @@ function LibraryPage() {
       const data = await fetchJson(`${apiBase}/submissions`, { headers });
       const list = data || [];
       setSubmissions(list);
+      setHasPending(list.some((item) => !TERMINAL_STATUSES.has(item.status)));
       setLastUpdated(new Date());
       return list;
     } catch (error) {
       setSubmissions([]);
+      setHasPending(false);
       setSubmissionsError("Unable to load submissions. Check connection.");
       throw error;
     } finally {
       setSubmissionsLoading(false);
     }
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current) return;
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      refreshSubmissions().catch((error) => {
+        logDev("refresh failed", error);
+      });
+    }, 600);
   };
 
   const handleReprocess = async (submissionId) => {
@@ -64,8 +82,7 @@ function LibraryPage() {
         method: "POST",
         headers
       });
-      setPolling(true);
-      await refreshSubmissions();
+      scheduleRefresh();
     } catch {
       setSubmissionsError("Reprocess failed. Try again.");
     }
@@ -110,10 +127,6 @@ function LibraryPage() {
         setAuthChecked(true);
         return refreshSubmissions();
       })
-      .then((list) => {
-        const hasPending = list.some((item) => !TERMINAL_STATUSES.has(item.status));
-        setPolling(hasPending);
-      })
       .catch((error) => {
         if (error.status === 401) {
           localStorage.removeItem("token");
@@ -149,25 +162,82 @@ function LibraryPage() {
   }, []);
 
   useEffect(() => {
-    if (!polling || !token) return;
+    if (!pollingFallback || !token) return;
 
     const interval = setInterval(() => {
-      refreshSubmissions()
-        .then((list) => {
-          const hasPending = list.some(
-            (item) => !TERMINAL_STATUSES.has(item.status)
-          );
-          if (!hasPending) {
-            setPolling(false);
-          }
-        })
-        .catch((error) => {
-          logDev("polling failed", error);
-        });
-    }, 4000);
+      refreshSubmissions().catch((error) => {
+        logDev("polling failed", error);
+      });
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [polling, token, headers]);
+  }, [pollingFallback, token, headers]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const since = new Date().toISOString();
+    const streamUrl = new URL(`${apiBase}/events/stream`);
+    streamUrl.searchParams.set("token", token);
+    streamUrl.searchParams.set("since", since);
+
+    setLiveState("connecting");
+    setStreamError("");
+    const source = new EventSource(streamUrl.toString());
+    streamRef.current = source;
+
+    source.onopen = () => {
+      setLiveState("live");
+      setStreamError("");
+      setPollingFallback(false);
+    };
+
+    source.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        setEventsById((prev) => {
+          if (!payload?.submission_id || !prev[payload.submission_id]) {
+            return prev;
+          }
+          const existing = prev[payload.submission_id];
+          if (existing.some((item) => item.id === payload.id)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [payload.submission_id]: [payload, ...existing]
+          };
+        });
+        setLastEventAt(new Date());
+        scheduleRefresh();
+      } catch (error) {
+        logDev("event parse failed", error);
+      }
+    };
+
+    source.onerror = () => {
+      setLiveState("error");
+      setStreamError("Live stream dropped. Falling back to polling.");
+      setPollingFallback(true);
+    };
+
+    return () => {
+      source.close();
+      streamRef.current = null;
+      setLiveState("idle");
+    };
+  }, [token]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.close();
+      }
+    };
+  }, []);
 
   const handleRegister = async () => {
     setAuthError("");
@@ -223,7 +293,8 @@ function LibraryPage() {
       </div>
       <div className="rail-card">
         <h4>Live updates</h4>
-        <p>We auto-refresh while something is processing.</p>
+        <p>Realtime stream with polling fallback when the connection drops.</p>
+        {streamError && <p className="error">{streamError}</p>}
       </div>
       <div className="rail-card">
         <h4>System status</h4>
@@ -348,8 +419,26 @@ function LibraryPage() {
                 Refresh
               </button>
               <div className="live-indicator">
-                <span className={`live-dot ${polling ? "on" : "paused"}`} />
-                <span>{polling ? "Live" : "Paused"}</span>
+                <span
+                  className={`live-dot ${
+                    liveState === "live"
+                      ? "on"
+                      : liveState === "connecting"
+                        ? "connecting"
+                        : "paused"
+                  }`}
+                />
+                <span>
+                  {liveState === "live"
+                    ? hasPending
+                      ? "Live"
+                      : "Standby"
+                    : liveState === "connecting"
+                      ? "Connecting"
+                      : pollingFallback
+                        ? "Polling"
+                        : "Paused"}
+                </span>
               </div>
             </div>
           </div>
@@ -368,6 +457,11 @@ function LibraryPage() {
           {lastUpdated && (
             <div className="library-updated">
               Updated {lastUpdated.toLocaleTimeString()}
+            </div>
+          )}
+          {lastEventAt && (
+            <div className="library-updated">
+              Last event {lastEventAt.toLocaleTimeString()}
             </div>
           )}
           {nextUp && (
@@ -467,7 +561,11 @@ function LibraryPage() {
                           {!eventsLoading[item.id] &&
                             !eventsError[item.id] &&
                             (eventsById[item.id] || []).map((event) => (
-                              <div key={`${event.event_name}-${event.timestamp}`}>
+                              <div
+                                key={
+                                  event.id || `${event.event_name}-${event.timestamp}`
+                                }
+                              >
                                 <strong>{formatEventName(event.event_name)}</strong>
                                 <span>{formatTimestamp(event.timestamp)}</span>
                                 {renderEventDetails(event)}

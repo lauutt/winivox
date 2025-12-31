@@ -22,7 +22,9 @@ Errores tipicos:
 
 ## 3) MinIO (CORS)
 
-- `MINIO_API_CORS_ALLOW_ORIGIN` debe incluir `http://localhost:5173`.
+- `MINIO_CORS_ORIGINS` en `docker-compose.yml` debe incluir `http://localhost:5173`.
+- `infra/minio-init.sh` aplica el CORS a los buckets.
+- `MINIO_API_CORS_ALLOW_ORIGIN` sigue habilitado para el API de MinIO.
 - Si el navegador bloquea el PUT, abrir DevTools y revisar el error de CORS.
 
 ## 4) Worker
@@ -41,3 +43,4 @@ Errores tipicos:
 - `docker compose logs --tail=200 api`
 - `docker compose logs --tail=200 worker`
 - `docker compose logs --tail=200 minio`
+- `./scripts/verify-e2e.sh /path/to/audio.opus`

@@ -46,3 +46,8 @@
 - Upload: selector de nivel de anonimizado.
 - Library: filtros por status.
 - Feed: sleep timer (15/30/45m).
+- API: SSE en `/events/stream` para updates en tiempo real.
+- Events: payload ahora incluye `id` y `submission_id`.
+- Library: streaming realtime con fallback a polling y estado de conexion.
+- MinIO: init movido a `infra/minio-init.sh` + `MINIO_CORS_ORIGINS`.
+- Script: `scripts/verify-e2e.sh` para validar el flujo end-to-end.

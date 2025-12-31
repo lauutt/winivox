@@ -20,6 +20,8 @@ Health check:
 ## E2E checklist
 
 Ver `docs/troubleshooting.md` para el flujo completo y errores tipicos.
+Script rapido:
+- `./scripts/verify-e2e.sh /path/to/audio.opus` (usa API + presigned + worker)
 
 Frontend routes:
 - Feed: http://localhost:5173/
@@ -35,7 +37,8 @@ Frontend routes:
 - Modelos configurables: `OPENAI_TRANSCRIBE_MODEL`, `OPENAI_METADATA_MODEL`,
   `OPENAI_MODERATION_MODEL`.
 - `MINIO_PUBLIC_ENDPOINT` should point to `http://localhost:9000` for browser access.
-- MinIO CORS is set via `MINIO_API_CORS_ALLOW_ORIGIN` in `docker-compose.yml`.
+- MinIO CORS se setea via `infra/minio-init.sh` + `MINIO_CORS_ORIGINS` en `docker-compose.yml`.
+- `MINIO_API_CORS_ALLOW_ORIGIN` sigue activo para el API de MinIO.
 - Upload soporta `.opus` y grabacion directa desde microfono (pedira permisos).
 - Logs dev en frontend: setear `VITE_DEV_LOGS=true` si queres mas detalle.
 - Logs dev en worker: setear `WORKER_DEV_LOGS=true`.
