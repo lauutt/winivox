@@ -75,6 +75,9 @@ class VoteResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     llm_ready: bool
+    db_ready: bool = False
+    storage_ready: bool = False
+    queue_ready: bool = False
 
 
 class EventResponse(BaseModel):

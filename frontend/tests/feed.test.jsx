@@ -24,8 +24,11 @@ describe("FeedPage", () => {
 
   it("renders tag filters and feed header", async () => {
     render(<FeedPage />);
-    expect(screen.getByText("Listen by tag")).toBeTruthy();
+    expect(screen.getByText("Tune by mood")).toBeTruthy();
     expect(screen.getByText("Latest anonymous drops")).toBeTruthy();
+    expect(screen.getByText("Latest")).toBeTruthy();
+    expect(screen.getByText("Top")).toBeTruthy();
+    expect(screen.getByText("Sleep")).toBeTruthy();
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 });

@@ -21,7 +21,10 @@ function FeedPage() {
   const [playerNotice, setPlayerNotice] = useState("");
   const [playerError, setPlayerError] = useState("");
   const [openTranscripts, setOpenTranscripts] = useState({});
+  const [sortMode, setSortMode] = useState("latest");
+  const [sleepTimer, setSleepTimer] = useState(0);
   const audioRef = useRef(null);
+  const sleepTimerRef = useRef(null);
 
   const headers = useMemo(() => authHeaders(token), [token]);
 
@@ -43,6 +46,30 @@ function FeedPage() {
         setPlayerNotice("Autoplay blocked. Tap play to continue.");
       });
   }, [currentTrack, autoPlay]);
+
+  useEffect(() => {
+    if (sleepTimerRef.current) {
+      clearTimeout(sleepTimerRef.current);
+      sleepTimerRef.current = null;
+    }
+    if (!sleepTimer) return;
+
+    sleepTimerRef.current = setTimeout(() => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setAutoPlay(false);
+      setPlayerNotice("Sleep timer ended.");
+      setSleepTimer(0);
+    }, sleepTimer * 60 * 1000);
+
+    return () => {
+      if (sleepTimerRef.current) {
+        clearTimeout(sleepTimerRef.current);
+        sleepTimerRef.current = null;
+      }
+    };
+  }, [sleepTimer]);
 
   const loadTags = async () => {
     setTagLoading(true);
@@ -80,6 +107,18 @@ function FeedPage() {
       setFeedLoading(false);
     }
   };
+
+  const sortedFeed = useMemo(() => {
+    if (sortMode === "top") {
+      return [...feed].sort((a, b) => {
+        if (b.vote_count !== a.vote_count) {
+          return b.vote_count - a.vote_count;
+        }
+        return new Date(b.published_at || 0) - new Date(a.published_at || 0);
+      });
+    }
+    return feed;
+  }, [feed, sortMode]);
 
   const handleRegister = async () => {
     setAuthError("");
@@ -170,6 +209,17 @@ function FeedPage() {
     }
   };
 
+  const nextTrack = useMemo(
+    () => pickNextTrack(feed, currentTrack),
+    [feed, currentTrack]
+  );
+
+  const handleSkip = () => {
+    if (!nextTrack) return;
+    setCurrentTrack(nextTrack);
+    setAutoPlay(true);
+  };
+
   const toggleTranscript = (submissionId) => {
     setOpenTranscripts((prev) => ({
       ...prev,
@@ -191,12 +241,23 @@ function FeedPage() {
             {currentTrack.tags && currentTrack.tags.length > 0 && (
               <span>Related to: {currentTrack.tags.slice(0, 2).join(" · ")}</span>
             )}
+            {nextTrack && (
+              <span>
+                Up next:{" "}
+                {truncateText(
+                  nextTrack.summary ||
+                    nextTrack.transcript_preview ||
+                    "Untitled",
+                  46
+                )}
+              </span>
+            )}
           </div>
         )}
       </div>
       <div className="rail-card">
         <h4>Signal</h4>
-        <p>Tap a tag to shape the stream. Autoplay chains related stories.</p>
+        <p>Tap a tag to gently steer the stream. Related stories play on.</p>
       </div>
     </>
   );
@@ -207,29 +268,66 @@ function FeedPage() {
         <strong>
           {currentTrack?.summary || currentTrack?.transcript_preview || "Idle"}
         </strong>
-        <span>{currentTrack ? "Streaming anonymized copy" : "Pick a track"}</span>
+        <span>{currentTrack ? "On air · anonymized copy" : "Pick a track"}</span>
+        {sleepTimer > 0 && (
+          <span className="player-timer">Sleep timer: {sleepTimer}m</span>
+        )}
+        {currentTrack && nextTrack && (
+          <span className="player-upnext">
+            Up next:{" "}
+            {truncateText(
+              nextTrack.summary ||
+                nextTrack.transcript_preview ||
+                "Untitled",
+              48
+            )}
+          </span>
+        )}
         {playerError && <span className="player-error">{playerError}</span>}
         {!playerError && playerNotice && (
           <span className="player-note">{playerNotice}</span>
         )}
       </div>
-      {currentTrack && (
-        <audio
-          controls
-          ref={audioRef}
-          src={currentTrack.public_url}
-          onEnded={handleTrackEnded}
-          onPlay={() => {
-            setAutoPlay(true);
-            setPlayerNotice("");
-            setPlayerError("");
-          }}
-          onError={() => {
-            setAutoPlay(false);
-            setPlayerError("Audio unavailable. Try another story.");
-          }}
-        />
-      )}
+      <div className="player-controls">
+        {currentTrack && (
+          <audio
+            controls
+            ref={audioRef}
+            src={currentTrack.public_url}
+            onEnded={handleTrackEnded}
+            onPlay={() => {
+              setAutoPlay(true);
+              setPlayerNotice("");
+              setPlayerError("");
+            }}
+            onError={() => {
+              setAutoPlay(false);
+              setPlayerError("Audio unavailable. Try another story.");
+            }}
+          />
+        )}
+        <button
+          type="button"
+          className="skip"
+          onClick={handleSkip}
+          disabled={!nextTrack}
+        >
+          Skip
+        </button>
+        <label className="sleep-control">
+          <span>Sleep</span>
+          <select
+            value={sleepTimer}
+            onChange={(event) => setSleepTimer(Number(event.target.value))}
+            disabled={!currentTrack}
+          >
+            <option value={0}>Off</option>
+            <option value={15}>15m</option>
+            <option value={30}>30m</option>
+            <option value={45}>45m</option>
+          </select>
+        </label>
+      </div>
     </div>
   );
 
@@ -238,10 +336,10 @@ function FeedPage() {
       current="feed"
       token={token}
       onLogout={handleLogout}
-      heroTitle="Stories, stripped of identity"
-      heroCopy="A warm, radio-like stream. Upload your voice, we anonymize and publish the echo."
-      heroBadgeLabel="Pipeline"
-      heroBadgeValue="Async + visible"
+      heroTitle="Comfort radio, anonymized"
+      heroCopy="A quiet stream of lived moments. We soften the edges, keep the warmth, and let the stories play."
+      heroBadgeLabel="On air"
+      heroBadgeValue="Anonymous, continuous"
       rightRail={rightRail}
       player={player}
     >
@@ -261,7 +359,7 @@ function FeedPage() {
       <section className="feed">
         <div className="tag-filter">
           <div className="tag-filter-header">
-            <h3>Listen by tag</h3>
+            <h3>Tune by mood</h3>
             <div className="tag-filter-actions">
               <button type="button" className="ghost" onClick={loadTags}>
                 Refresh tags
@@ -297,17 +395,32 @@ function FeedPage() {
 
         <div className="feed-header">
           <h3>Latest anonymous drops</h3>
-          <button
-            type="button"
-            onClick={() => loadFeed(selectedTags)}
-          >
-            Refresh
-          </button>
+          <div className="feed-controls">
+            <div className="feed-sort">
+              <button
+                type="button"
+                className={sortMode === "latest" ? "active" : ""}
+                onClick={() => setSortMode("latest")}
+              >
+                Latest
+              </button>
+              <button
+                type="button"
+                className={sortMode === "top" ? "active" : ""}
+                onClick={() => setSortMode("top")}
+              >
+                Top
+              </button>
+            </div>
+            <button type="button" onClick={() => loadFeed(selectedTags)}>
+              Refresh
+            </button>
+          </div>
         </div>
         {feedLoading && <p className="muted">Loading feed...</p>}
         {feedError && <p className="error">{feedError}</p>}
         <div className="feed-grid">
-          {feed.map((item) => (
+          {sortedFeed.map((item) => (
             <article key={item.id} className="feed-card">
               <div className="cover" />
               <div>

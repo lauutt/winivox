@@ -32,3 +32,17 @@
 - Feed: fallback de tags para DBs no Postgres (para tests locales).
 - UI: logo optimizado (webp + png fallback) y texto menos redundante.
 - Feed: transcript preview desplegable para evitar cards muy altas.
+- Library: lista de submissions compacta con detalles bajo demanda.
+- Upload: errores de storage/queue se traducen a 502/503 y UI muestra detalle.
+- Frontend: nueva ruta `/library/` con updates en vivo y upload desacoplado.
+- Library: indicador live + barra animada para progreso del pipeline.
+- Library: detalle de moderacion en timeline + estilo de items en proceso.
+- UI: copy y tonos visuales mas analog/comfort en feed, upload y library.
+- Feed: "Up next" y boton Skip en reproductor.
+- API: `/health` ahora reporta readiness de DB/MinIO/Redis.
+- Docs: checklist E2E y troubleshooting agregados.
+- Feed: orden Latest/Top (basado en votos).
+- Library: status de sistemas visible (DB/Storage/Queue/LLM).
+- Upload: selector de nivel de anonimizado.
+- Library: filtros por status.
+- Feed: sleep timer (15/30/45m).

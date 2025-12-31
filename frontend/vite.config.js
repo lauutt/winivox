@@ -12,7 +12,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        upload: resolve(__dirname, "upload/index.html")
+        upload: resolve(__dirname, "upload/index.html"),
+        library: resolve(__dirname, "library/index.html")
       }
     }
   }

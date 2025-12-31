@@ -6,6 +6,7 @@ con pipeline asincrono, transcripcion+LLM OpenAI para tags/summary, upload fluid
 Se prioriza:
 - Upload de audio (incluye .opus) y grabacion directa desde microfono.
 - Feedback visible del procesamiento asincrono.
+- Library personal para seguir estados en tiempo real.
 
 Para evitar duplicar info tecnica, ver:
 - `docs/docs-owner.md` (estado real del codigo)

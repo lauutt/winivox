@@ -14,9 +14,17 @@ Services:
 - Frontend: http://localhost:5173
 - MinIO: http://localhost:9001
 
+Health check:
+- `GET /health` devuelve readiness de DB, storage (MinIO) y queue (Redis).
+
+## E2E checklist
+
+Ver `docs/troubleshooting.md` para el flujo completo y errores tipicos.
+
 Frontend routes:
 - Feed: http://localhost:5173/
 - Upload: http://localhost:5173/upload/
+- Library: http://localhost:5173/library/
 
 ## Notes
 

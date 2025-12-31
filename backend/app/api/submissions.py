@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from botocore.exceptions import BotoCoreError, ClientError
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from ..deps import get_current_user
@@ -47,9 +49,16 @@ def create_submission(
     submission.original_audio_key = object_key
     db.commit()
 
-    upload_url = generate_presigned_put(
-        settings.s3_private_bucket, object_key, payload.content_type
-    )
+    try:
+        upload_url = generate_presigned_put(
+            settings.s3_private_bucket, object_key, payload.content_type
+        )
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        db.delete(submission)
+        db.commit()
+        raise HTTPException(
+            status_code=502, detail="Storage unavailable"
+        ) from exc
 
     return SubmissionUploadResponse(
         id=submission.id,
@@ -78,9 +87,15 @@ def mark_uploaded(
     db.commit()
 
     record_event(
-        db, "audio.uploaded", submission.id, {"object_key": submission.original_audio_key}
+        db,
+        "audio.uploaded",
+        submission.id,
+        {"object_key": submission.original_audio_key},
     )
-    enqueue_submission(submission.id)
+    try:
+        enqueue_submission(submission.id)
+    except RedisError as exc:
+        raise HTTPException(status_code=503, detail="Queue unavailable") from exc
 
     db.refresh(submission)
     return SubmissionResponse.model_validate(submission)

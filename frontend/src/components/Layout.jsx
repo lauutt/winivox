@@ -3,6 +3,7 @@ import logoWebp from "../img/logo_winivox.webp";
 
 const navItems = [
   { id: "feed", label: "Feed", href: "/" },
+  { id: "library", label: "Library", href: "/library/" },
   { id: "upload", label: "Upload", href: "/upload/" }
 ];
 
@@ -28,7 +29,7 @@ function Layout({
           </picture>
           <div>
             <h1>Winivox</h1>
-            <p>Anonymous audio stories</p>
+            <p>Comfort radio archive</p>
           </div>
         </div>
         <nav>

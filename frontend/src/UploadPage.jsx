@@ -3,34 +3,14 @@ import AuthPanel from "./components/AuthPanel.jsx";
 import Layout from "./components/Layout.jsx";
 import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
 
-const STEP_LABELS = {
-  0: "Queued",
-  1: "Normalized",
-  2: "Transcribed",
-  3: "Moderated",
-  4: "Tagged",
-  5: "Anonymized",
-  6: "Published"
-};
-
-const TERMINAL_STATUSES = new Set(["APPROVED", "REJECTED", "QUARANTINED"]);
-
 function UploadPage() {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
-  const [submissions, setSubmissions] = useState([]);
-  const [submissionsLoading, setSubmissionsLoading] = useState(false);
-  const [submissionsError, setSubmissionsError] = useState("");
   const [uploadState, setUploadState] = useState({ status: "idle", message: "" });
   const [authChecked, setAuthChecked] = useState(false);
-  const [polling, setPolling] = useState(false);
-  const [activeSubmissionId, setActiveSubmissionId] = useState("");
-  const [eventsById, setEventsById] = useState({});
-  const [timelineOpen, setTimelineOpen] = useState({});
-  const [eventsLoading, setEventsLoading] = useState({});
-  const [eventsError, setEventsError] = useState({});
+  const [anonymizationMode, setAnonymizationMode] = useState("SOFT");
   const [recordingState, setRecordingState] = useState("idle");
   const [recordingError, setRecordingError] = useState("");
   const [recordingTime, setRecordingTime] = useState(0);
@@ -44,77 +24,6 @@ function UploadPage() {
 
   const headers = useMemo(() => authHeaders(token), [token]);
 
-  const refreshSubmissions = async () => {
-    setSubmissionsLoading(true);
-    setSubmissionsError("");
-    try {
-      const data = await fetchJson(`${apiBase}/submissions`, { headers });
-      const list = data || [];
-      setSubmissions(list);
-
-      if (activeSubmissionId) {
-        const active = list.find((item) => item.id === activeSubmissionId);
-        if (active) {
-          setUploadState({
-            status: active.status.toLowerCase(),
-            message: describeSubmission(active)
-          });
-        }
-      }
-      return list;
-    } catch (error) {
-      setSubmissions([]);
-      setSubmissionsError("Unable to load submissions. Check connection.");
-      throw error;
-    } finally {
-      setSubmissionsLoading(false);
-    }
-  };
-
-  const handleReprocess = async (submissionId) => {
-    if (!token) return;
-    setUploadState({ status: "reprocessing", message: "Reprocessing audio" });
-    try {
-      await fetchJson(`${apiBase}/submissions/${submissionId}/reprocess`, {
-        method: "POST",
-        headers
-      });
-      setActiveSubmissionId(submissionId);
-      setPolling(true);
-      await refreshSubmissions();
-    } catch {
-      setUploadState({ status: "error", message: "Reprocess failed" });
-    }
-  };
-
-  const toggleTimeline = async (submissionId) => {
-    const isOpen = timelineOpen[submissionId];
-    if (isOpen) {
-      setTimelineOpen((prev) => ({ ...prev, [submissionId]: false }));
-      return;
-    }
-    if (!eventsById[submissionId]) {
-      setEventsLoading((prev) => ({ ...prev, [submissionId]: true }));
-      setEventsError((prev) => ({ ...prev, [submissionId]: "" }));
-      try {
-        const data = await fetchJson(
-          `${apiBase}/events?submission_id=${submissionId}`,
-          { headers }
-        );
-        setEventsById((prev) => ({ ...prev, [submissionId]: data || [] }));
-      } catch {
-        setEventsById((prev) => ({ ...prev, [submissionId]: [] }));
-        setEventsError((prev) => ({
-          ...prev,
-          [submissionId]: "Unable to load events."
-        }));
-      } finally {
-        setEventsLoading((prev) => ({ ...prev, [submissionId]: false }));
-      }
-    }
-    setTimelineOpen((prev) => ({ ...prev, [submissionId]: true }));
-  };
-
   useEffect(() => {
     if (!token) {
       setAuthChecked(true);
@@ -124,11 +33,6 @@ function UploadPage() {
     fetchJson(`${apiBase}/auth/me`, { headers })
       .then(() => {
         setAuthChecked(true);
-        return refreshSubmissions();
-      })
-      .then((list) => {
-        const hasPending = list.some((item) => !TERMINAL_STATUSES.has(item.status));
-        setPolling(hasPending);
       })
       .catch((error) => {
         if (error.status === 401) {
@@ -137,31 +41,9 @@ function UploadPage() {
           setAuthChecked(true);
           return;
         }
-        setSubmissions([]);
-        setSubmissionsError("Unable to load submissions.");
+        setAuthChecked(true);
       });
   }, [token, headers]);
-
-  useEffect(() => {
-    if (!polling || !token) return;
-
-    const interval = setInterval(() => {
-      refreshSubmissions()
-        .then((list) => {
-          const hasPending = list.some(
-            (item) => !TERMINAL_STATUSES.has(item.status)
-          );
-          if (!hasPending) {
-            setPolling(false);
-          }
-        })
-        .catch((error) => {
-          logDev("polling failed", error);
-        });
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [polling, token, headers]);
 
   const handleRegister = async () => {
     setAuthError("");
@@ -224,12 +106,13 @@ function UploadPage() {
         body: JSON.stringify({
           filename: file.name,
           content_type: contentType,
-          anonymization_mode: "SOFT"
+          anonymization_mode: anonymizationMode
         })
       });
 
       if (!res.ok) {
-        setUploadState({ status: "error", message: "Submission failed" });
+        const detail = await readErrorMessage(res, "Submission failed");
+        setUploadState({ status: "error", message: detail });
         return false;
       }
 
@@ -243,7 +126,11 @@ function UploadPage() {
       });
 
       if (!uploadRes.ok) {
-        setUploadState({ status: "error", message: "Upload failed" });
+        const detail = await readErrorMessage(
+          uploadRes,
+          `Upload failed (${uploadRes.status})`
+        );
+        setUploadState({ status: "error", message: detail });
         return false;
       }
 
@@ -254,27 +141,23 @@ function UploadPage() {
       });
 
       if (!markRes.ok) {
-        setUploadState({ status: "error", message: "Finalize failed" });
+        const detail = await readErrorMessage(markRes, "Finalize failed");
+        setUploadState({ status: "error", message: detail });
         return false;
       }
 
-      setActiveSubmissionId(data.id);
-      setPolling(true);
-      setUploadState({ status: "queued", message: "Queued for processing" });
-
-      try {
-        const list = await refreshSubmissions();
-        const hasPending = list.some(
-          (item) => !TERMINAL_STATUSES.has(item.status)
-        );
-        setPolling(hasPending);
-      } catch {
-        setSubmissions([]);
-      }
+      setUploadState({
+        status: "queued",
+        message: "Queued for processing. Track it in your Library."
+      });
       return true;
     } catch (error) {
       logDev("upload error", error);
-      setUploadState({ status: "error", message: "Network error. Try again." });
+      const message =
+        error instanceof Error
+          ? `Network error: ${error.message}`
+          : "Network error. Try again.";
+      setUploadState({ status: "error", message });
       return false;
     }
   };
@@ -386,8 +269,8 @@ function UploadPage() {
         </ol>
       </div>
       <div className="rail-card">
-        <h4>Privacy</h4>
-        <p>Original audio stays private. Public feed uses anonymized copies.</p>
+        <h4>Next stop</h4>
+        <p>Follow progress in your Library once the upload is queued.</p>
       </div>
     </>
   );
@@ -397,8 +280,8 @@ function UploadPage() {
       current="upload"
       token={token}
       onLogout={handleLogout}
-      heroTitle="Upload your story"
-      heroCopy="Direct upload to private storage or record from your mic. We process asynchronously and publish an anonymized copy."
+      heroTitle="Leave a quiet story"
+      heroCopy="Drop a file or record a voice note. We shape it gently and keep the original private."
       heroBadgeLabel="Privacy"
       heroBadgeValue="Private originals"
       rightRail={rightRail}
@@ -429,8 +312,8 @@ function UploadPage() {
         <section className="upload">
           <h3>Upload a story</h3>
           <p>
-            Drag a file or record from your microphone. We will keep you posted
-            as the pipeline processes it.
+            Drag a file or record from your microphone. Track progress in your
+            Library once it is queued.
           </p>
           <label className="upload-drop">
             <input
@@ -441,6 +324,24 @@ function UploadPage() {
             <span>Choose an audio file</span>
           </label>
           <div className="upload-hint">Supports .opus, .ogg, .webm, .wav, .mp3</div>
+          <div className="upload-options">
+            <label>
+              Voice anonymization
+              <select
+                value={anonymizationMode}
+                onChange={(event) => setAnonymizationMode(event.target.value)}
+              >
+                <option value="OFF">Off</option>
+                <option value="SOFT">Soft</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="STRONG">Strong</option>
+              </select>
+            </label>
+            <p className="muted">
+              Higher levels shift the voice further while keeping the story
+              clear.
+            </p>
+          </div>
 
           <div className="recording">
             <div className="recording-header">
@@ -490,85 +391,11 @@ function UploadPage() {
             <strong>Status:</strong> {uploadState.status}
             <span>{uploadState.message}</span>
           </div>
-
-          <div className="submissions">
-            <div className="submissions-header">
-              <h4>My submissions</h4>
-              <div className="submissions-actions">
-                <button type="button" onClick={refreshSubmissions}>
-                  Refresh
-                </button>
-                <a href="/">Go to feed</a>
-              </div>
-            </div>
-            <ul>
-              {submissions.map((item) => (
-                <li key={item.id}>
-                  <div className="submission-main">
-                    <span className={`pill ${item.status.toLowerCase()}`}>
-                      {item.status}
-                    </span>
-                    <span>
-                      {item.summary || item.transcript_preview || "(processing)"}
-                    </span>
-                  </div>
-                  <div className="submission-meta">
-                    <span>{describeSubmission(item)}</span>
-                    <span>Step {item.processing_step}/6</span>
-                  </div>
-                  <div className="submission-actions">
-                    <button
-                      type="button"
-                      onClick={() => handleReprocess(item.id)}
-                    >
-                      Reprocess
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => toggleTimeline(item.id)}
-                    >
-                      {timelineOpen[item.id] ? "Hide timeline" : "View timeline"}
-                    </button>
-                  </div>
-                  {item.transcript_preview && (
-                    <div className="transcript-preview">
-                      Transcripcion: {truncateText(item.transcript_preview, 220)}
-                    </div>
-                  )}
-                  {timelineOpen[item.id] && (
-                    <div className="timeline">
-                      {eventsLoading[item.id] && (
-                        <span className="muted">Loading events...</span>
-                      )}
-                      {!eventsLoading[item.id] && eventsError[item.id] && (
-                        <span className="error">{eventsError[item.id]}</span>
-                      )}
-                      {!eventsLoading[item.id] &&
-                        !eventsError[item.id] &&
-                        (eventsById[item.id] || []).map((event) => (
-                          <div key={`${event.event_name}-${event.timestamp}`}>
-                            <strong>{formatEventName(event.event_name)}</strong>
-                            <span>{formatTimestamp(event.timestamp)}</span>
-                          </div>
-                        ))}
-                      {!eventsLoading[item.id] &&
-                        !eventsError[item.id] &&
-                        (eventsById[item.id] || []).length === 0 && (
-                          <span className="muted">No events yet.</span>
-                        )}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {submissionsLoading && (
-              <p className="muted">Loading submissions...</p>
-            )}
-            {!submissionsLoading &&
-              submissions.length === 0 &&
-              !submissionsError && <p className="muted">No submissions yet.</p>}
-            {submissionsError && <p className="error">{submissionsError}</p>}
+          <div className="upload-cta">
+            <a href="/library/">Go to your library</a>
+            <span className="muted">
+              Follow processing in real time once the upload is queued.
+            </span>
           </div>
         </section>
       )}
@@ -576,16 +403,20 @@ function UploadPage() {
   );
 }
 
-function describeSubmission(item) {
-  if (item.status === "REJECTED") return "Rejected by moderation";
-  if (item.status === "QUARANTINED") return "Quarantined for review";
-  if (item.status === "APPROVED") return "Published";
-  if (item.status === "UPLOADED") return "Queued for processing";
-  if (item.status === "PROCESSING") {
-    const label = STEP_LABELS[item.processing_step] || "Processing";
-    return `Processing · ${label}`;
+async function readErrorMessage(response, fallback) {
+  try {
+    const data = await response.clone().json();
+    if (data?.detail) return data.detail;
+  } catch {
+    // ignore json parsing failures
   }
-  return item.status;
+  try {
+    const text = await response.text();
+    if (text) return text.slice(0, 160);
+  } catch {
+    // ignore body read failures
+  }
+  return fallback;
 }
 
 function guessContentType(file) {
@@ -621,24 +452,6 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
-
-function truncateText(text, max) {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max).trim()}...`;
-}
-
-function formatTimestamp(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function formatEventName(name) {
-  if (!name) return "Event";
-  const clean = name.replace("audio.", "").replace(/_/g, " ");
-  return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
 export default UploadPage;

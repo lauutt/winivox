@@ -21,6 +21,7 @@ Servicios previstos:
 Frontend rutas base:
 - `/` feed
 - `/upload/` subida
+- `/library/` mis audios
 - Upload soporta `.opus` y grabacion desde microfono.
 
 Referencia de setup local:

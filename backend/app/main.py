@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from botocore.exceptions import BotoCoreError, ClientError
+from redis.exceptions import RedisError
+from sqlalchemy import text
 
 from .api import auth, events, feed, submissions, votes
 from .db import Base, engine, ensure_schema
 from .schemas import HealthResponse
+from .queue import get_redis_client
 from .settings import settings
+from .storage import get_internal_s3_client
 
 app = FastAPI(title="Winivox MVP API")
 
@@ -25,7 +30,41 @@ def startup() -> None:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", llm_ready=bool(settings.openai_api_key))
+    db_ready = False
+    storage_ready = False
+    queue_ready = False
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ready = True
+    except Exception:
+        db_ready = False
+
+    try:
+        client = get_internal_s3_client()
+        client.list_buckets()
+        storage_ready = True
+    except (BotoCoreError, ClientError):
+        storage_ready = False
+    except Exception:
+        storage_ready = False
+
+    try:
+        client = get_redis_client()
+        queue_ready = bool(client.ping())
+    except RedisError:
+        queue_ready = False
+    except Exception:
+        queue_ready = False
+
+    return HealthResponse(
+        status="ok",
+        llm_ready=bool(settings.openai_api_key),
+        db_ready=db_ready,
+        storage_ready=storage_ready,
+        queue_ready=queue_ready,
+    )
 
 
 app.include_router(auth.router)
