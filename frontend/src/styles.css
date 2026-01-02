@@ -13,6 +13,15 @@
   --rose: 233 237 201;
 }
 
+@keyframes nowPlayingDots {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 1.2em;
+  }
+}
+
 @layer base {
   *,
   *::before,
@@ -78,6 +87,36 @@
 
   .surface-glass {
     @apply rounded-3xl border border-sand/80 bg-white p-4 shadow-lift;
+  }
+
+  .now-playing-card {
+    @apply p-5;
+  }
+
+  .now-playing-active {
+    @apply border-sand/30 bg-[#252018] text-cream shadow-[0_14px_28px_rgba(0,0,0,0.2)];
+  }
+
+  .now-playing-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.28em];
+  }
+
+  .now-playing-title {
+    @apply mt-2 text-lg font-semibold leading-snug;
+  }
+
+  .now-playing-dots {
+    display: inline-block;
+    margin-left: 6px;
+    vertical-align: baseline;
+  }
+
+  .now-playing-dots::after {
+    content: "...";
+    display: inline-block;
+    width: 0;
+    overflow: hidden;
+    animation: nowPlayingDots 1.2s steps(4, end) infinite;
   }
 
   .btn {

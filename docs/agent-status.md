@@ -8,6 +8,7 @@ Nota: este archivo es la fuente de verdad. Actualizalo en cada cambio real.
 
 - E2E demo funciona con Docker Compose (api, worker, frontend, postgres, redis, minio).
 - Env local vive en `infra/dev.local.env` (ignorado) y hay template en `infra/dev.env.example`; compose lee el local.
+- `backend/.env` ya no se versiona; template en `backend/.env.example`.
 - Upload directo a storage privado con presigned URLs; audio nunca pasa por FastAPI.
 - Worker ejecuta pipeline asincrono: normalize, transcribe (audio normalizado y comprimido para transcripcion), moderate, title+summary+tags+viral_analysis, anonymize, publish.
 - OpenAI integrado para transcripcion, moderacion y title/summary/tags/viral_analysis (fallback si falta `OPENAI_API_KEY`).
@@ -18,6 +19,7 @@ Nota: este archivo es la fuente de verdad. Actualizalo en cada cambio real.
 - Reproductor sigue sonando al abrir una historia; feed ordena por latest/top.
 - Library usa SSE para updates en vivo con fallback a polling y muestra health.
 - Feed mueve el filtro de tags a la columna lateral con la guia de temas fusionada.
+- Feed simplifica el box "Sonando ahora" a un titulo mas legible, fondo casi negro en reproduccion y puntos suspensivos animados.
 - Perfil de usuario con bio/redes/foto; la foto se usa como portada base y los audios pueden subir una portada propia.
 - Perfil tiene checklist y preview mas amable para cargar foto/bio/redes.
 - Upload evita ReferenceError reordenando resetUpload.

@@ -218,27 +218,20 @@ function FeedPage() {
 
   const rightRail = (
     <>
-      <div className="surface-glass">
-        <h4 className="text-base">Sonando ahora</h4>
-        <p className="mt-2 text-sm text-muted">
-          {currentTrack ? getStoryTitle(currentTrack) : "Elegi una historia"}
+      <div
+        className={`surface-glass now-playing-card transition-colors ${
+          currentTrack
+            ? "now-playing-active"
+            : "bg-card/80"
+        }`}
+      >
+        <p className={`now-playing-label ${currentTrack ? "text-cream/70" : "text-muted/80"}`}>
+          Sonando ahora
+          {currentTrack && <span className="now-playing-dots" aria-hidden="true" />}
         </p>
-        {currentTrack && (
-          <div className="mt-3 grid gap-1 text-xs text-muted">
-            {currentTrack.tags && currentTrack.tags.length > 0 && (
-              <span>Relacionado con: {currentTrack.tags.slice(0, 2).join(" · ")}</span>
-            )}
-            {nextTrack && (
-              <span>
-                Sigue:{" "}
-                {truncateText(
-                  getStoryTitle(nextTrack),
-                  46
-                )}
-              </span>
-            )}
-          </div>
-        )}
+        <p className={`now-playing-title ${currentTrack ? "text-cream" : "text-ink"}`}>
+          {currentTrack ? getStoryTitle(currentTrack) : "Elegi una historia para empezar"}
+        </p>
       </div>
       <div className="surface-glass">
         <div className="flex items-center justify-between gap-2">
