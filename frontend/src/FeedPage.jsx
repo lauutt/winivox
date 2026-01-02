@@ -1,51 +1,82 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
 import Layout from "./components/Layout.jsx";
-import { apiBase, authHeaders, fetchJson } from "./lib/api.js";
+import Player from "./components/Player.jsx";
+import SkeletonCard from "./components/SkeletonCard.jsx";
+import Toast from "./components/Toast.jsx";
+import { useAuth } from "./hooks/useAuth.js";
+import { useFeed } from "./hooks/useFeed.js";
+import { usePlayer } from "./hooks/usePlayer.js";
+import { useToast } from "./hooks/useToast.js";
+import { apiBase } from "./lib/api.js";
 
 function FeedPage() {
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [feed, setFeed] = useState([]);
-  const [feedLoading, setFeedLoading] = useState(true);
-  const [feedError, setFeedError] = useState("");
-  const [currentTrack, setCurrentTrack] = useState(null);
-  const [voteError, setVoteError] = useState("");
-  const [tagOptions, setTagOptions] = useState([]);
-  const [selectedTags, setSelectedTags] = useState(() => parseTagsFromUrl());
-  const [tagLoading, setTagLoading] = useState(true);
-  const [tagError, setTagError] = useState("");
-  const [lowSerendipia, setLowSerendipia] = useState([]);
-  const [lowSerendipiaLoading, setLowSerendipiaLoading] = useState(true);
-  const [lowSerendipiaError, setLowSerendipiaError] = useState("");
-  const [autoPlay, setAutoPlay] = useState(false);
-  const [playerNotice, setPlayerNotice] = useState("");
-  const [playerError, setPlayerError] = useState("");
-  const [sortMode, setSortMode] = useState("latest");
-  const [sleepTimer, setSleepTimer] = useState(0);
+  // Custom hooks
+  const { token, email, password, authError, headers, setEmail, setPassword, handleRegister, handleLogin, handleLogout } = useAuth();
+  const {
+    feed,
+    feedLoading,
+    feedError,
+    sortedFeed,
+    sortMode,
+    setSortMode,
+    loadFeed,
+    tagOptions,
+    tagLoading,
+    tagError,
+    selectedTags,
+    setSelectedTags,
+    loadTags,
+    lowSerendipia,
+    lowSerendipiaLoading,
+    lowSerendipiaError,
+    loadLowSerendipia
+  } = useFeed();
+  const {
+    currentTrack,
+    autoPlay,
+    playerNotice,
+    playerError,
+    sleepTimer,
+    playbackRate,
+    nextTrack,
+    audioRef,
+    selectTrack,
+    skipToNext,
+    handleTrackEnded,
+    setSleepTimer,
+    setPlaybackRate,
+    setAutoPlay,
+    setPlayerNotice,
+    setPlayerError
+  } = usePlayer(feed);
+  const { toast, showToast, hideToast } = useToast();
+
+  // Story modal state
   const [storyId, setStoryId] = useState(() => parseStoryFromUrl());
   const [story, setStory] = useState(null);
   const [storyLoading, setStoryLoading] = useState(false);
   const [storyError, setStoryError] = useState("");
-  const audioRef = useRef(null);
-  const sleepTimerRef = useRef(null);
+  const [playingId, setPlayingId] = useState("");
+  const [applaudedIds, setApplaudedIds] = useState(() => loadApplause(token));
 
-  const headers = useMemo(() => authHeaders(token), [token]);
+  // Refs
+  const storyModalRef = useRef(null);
 
+  const closeStory = useCallback(() => {
+    setStoryId(null);
+    updateStoryInUrl(null);
+  }, []);
+
+  // Load tags and low serendipia on mount
   useEffect(() => {
     loadTags();
-  }, []);
-
-  useEffect(() => {
     loadLowSerendipia();
-  }, []);
+  }, [loadTags, loadLowSerendipia]);
 
   useEffect(() => {
-    loadFeed(selectedTags);
-    updateTagsInUrl(selectedTags);
-  }, [selectedTags]);
+    setApplaudedIds(loadApplause(token));
+  }, [token]);
 
   useEffect(() => {
     const handlePop = () => {
@@ -64,204 +95,104 @@ function FeedPage() {
     loadStory(storyId);
   }, [storyId]);
 
+  // Cerrar modal con Escape key
   useEffect(() => {
-    if (!currentTrack || !autoPlay || !audioRef.current) return;
-    audioRef.current
-      .play()
-      .catch(() => {
-        setAutoPlay(false);
-        setPlayerNotice("La reproduccion automatica fue bloqueada. Toca reproducir.");
-      });
-  }, [currentTrack, autoPlay]);
-
-  useEffect(() => {
-    if (sleepTimerRef.current) {
-      clearTimeout(sleepTimerRef.current);
-      sleepTimerRef.current = null;
-    }
-    if (!sleepTimer) return;
-
-    sleepTimerRef.current = setTimeout(() => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setAutoPlay(false);
-      setPlayerNotice("Temporizador finalizado.");
-      setSleepTimer(0);
-    }, sleepTimer * 60 * 1000);
-
-    return () => {
-      if (sleepTimerRef.current) {
-        clearTimeout(sleepTimerRef.current);
-        sleepTimerRef.current = null;
+    const handleEscape = (event) => {
+      if (event.key === "Escape" && story) {
+        closeStory();
       }
     };
-  }, [sleepTimer]);
 
-  const loadTags = async () => {
-    setTagLoading(true);
-    setTagError("");
-    try {
-      const res = await fetch(`${apiBase}/feed/tags?limit=30`);
-      if (!res.ok) {
-        throw new Error("tags failed");
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [story, closeStory]);
+
+  // Mover focus al modal cuando se abre
+  useEffect(() => {
+    if (story && storyModalRef.current) {
+      storyModalRef.current.focus();
+    }
+  }, [story]);
+
+  // Player logic now comes from usePlayer hook
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handlePlay = () => setPlayingId(currentTrack?.id || "");
+    const handlePause = () => setPlayingId("");
+    const handleEnded = () => setPlayingId("");
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, [audioRef, currentTrack?.id]);
+
+  const togglePlay = useCallback((item) => {
+    if (!item) return;
+    if (currentTrack?.id === item.id && audioRef.current) {
+      if (!audioRef.current.paused) {
+        audioRef.current.pause();
+        setAutoPlay(false);
+        return;
       }
-      const data = await res.json();
-      setTagOptions(data || []);
-    } catch {
-      setTagOptions([]);
-      setTagError("No se pudieron cargar las etiquetas");
-    } finally {
-      setTagLoading(false);
     }
-  };
+    selectTrack(item);
+  }, [currentTrack?.id, audioRef, selectTrack, setAutoPlay]);
 
-  const loadFeed = async (tags = []) => {
-    setFeedLoading(true);
-    setFeedError("");
-    try {
-      const url = buildFeedUrl(tags);
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error("feed failed");
-      }
-      const data = await res.json();
-      setFeed(data || []);
-    } catch {
-      setFeed([]);
-      setFeedError("No se pudieron cargar las historias");
-    } finally {
-      setFeedLoading(false);
-    }
-  };
-
-  const loadLowSerendipia = async () => {
-    setLowSerendipiaLoading(true);
-    setLowSerendipiaError("");
-    try {
-      const res = await fetch(`${apiBase}/feed/low-serendipia?limit=6`);
-      if (!res.ok) {
-        throw new Error("low serendipia failed");
-      }
-      const data = await res.json();
-      setLowSerendipia(data || []);
-    } catch {
-      setLowSerendipia([]);
-      setLowSerendipiaError("No se pudo cargar esta seccion");
-    } finally {
-      setLowSerendipiaLoading(false);
-    }
-  };
-
-  const sortedFeed = useMemo(() => {
-    if (sortMode === "top") {
-      return [...feed].sort((a, b) => {
-        if (b.vote_count !== a.vote_count) {
-          return b.vote_count - a.vote_count;
-        }
-        return new Date(b.published_at || 0) - new Date(a.published_at || 0);
-      });
-    }
-    return feed;
-  }, [feed, sortMode]);
-
-  const handleRegister = async () => {
-    setAuthError("");
-    const res = await fetch(`${apiBase}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-    if (!res.ok) {
-      setAuthError("No se pudo crear la cuenta");
-      return;
-    }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-  };
-
-  const handleLogin = async () => {
-    setAuthError("");
-    const form = new URLSearchParams();
-    form.append("username", email);
-    form.append("password", password);
-    const res = await fetch(`${apiBase}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form
-    });
-    if (!res.ok) {
-      setAuthError("No se pudo iniciar sesion");
-      return;
-    }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    setToken(null);
-  };
-
-  const handleVote = async (audioId) => {
+  const handleVote = useCallback(async (audioId) => {
     if (!token) {
-      setVoteError("Inicia sesion para votar");
+      showToast("Inicia sesion para votar", "info");
       return;
     }
-    setVoteError("");
+    if (applaudedIds.includes(audioId)) {
+      showToast("Ya aplaudiste esta historia", "info");
+      return;
+    }
     try {
-      await fetchJson(`${apiBase}/votes`, {
+      const res = await fetch(`${apiBase}/votes`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({ audio_id: audioId })
       });
+      if (res.status === 409) {
+        const nextIds = saveApplause(token, applaudedIds, audioId);
+        setApplaudedIds(nextIds);
+        showToast("Ya aplaudiste esta historia", "info");
+        return;
+      }
+      if (!res.ok) {
+        throw new Error("vote failed");
+      }
+      const nextIds = saveApplause(token, applaudedIds, audioId);
+      setApplaudedIds(nextIds);
+      showToast("¡Aplauso enviado!", "success");
       await loadFeed(selectedTags);
     } catch {
-      setVoteError("No se pudo votar");
+      showToast("No se pudo votar", "error");
     }
-  };
+  }, [token, showToast, headers, selectedTags, loadFeed, applaudedIds]);
 
-  const handleSelectTrack = (item) => {
-    setPlayerError("");
-    setPlayerNotice("");
-    setCurrentTrack(item);
-    setAutoPlay(true);
-  };
-
-  const handleTagToggle = (tag) => {
+  const handleTagToggle = useCallback((tag) => {
     setSelectedTags((prev) => {
       if (prev.includes(tag)) {
         return prev.filter((item) => item !== tag);
       }
       return [...prev, tag];
     });
-  };
+  }, []);
 
-  const clearTags = () => {
+  const clearTags = useCallback(() => {
     setSelectedTags([]);
-  };
+  }, []);
 
-  const handleTrackEnded = () => {
-    const nextTrack = pickNextTrack(feed, currentTrack);
-    if (nextTrack) {
-      setCurrentTrack(nextTrack);
-    }
-  };
-
-  const nextTrack = useMemo(
-    () => pickNextTrack(feed, currentTrack),
-    [feed, currentTrack]
-  );
-
-  const handleSkip = () => {
-    if (!nextTrack) return;
-    setCurrentTrack(nextTrack);
-    setAutoPlay(true);
-  };
-
-  const loadStory = async (id) => {
+  const loadStory = useCallback(async (id) => {
     setStoryLoading(true);
     setStoryError("");
     try {
@@ -277,18 +208,13 @@ function FeedPage() {
     } finally {
       setStoryLoading(false);
     }
-  };
+  }, []);
 
-  const openStory = (id) => {
+  const openStory = useCallback((id) => {
     setStoryId(id);
     updateStoryInUrl(id);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const closeStory = () => {
-    setStoryId(null);
-    updateStoryInUrl(null);
-  };
+  }, []);
 
   const rightRail = (
     <>
@@ -373,84 +299,24 @@ function FeedPage() {
   );
 
   const player = (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-sand/80 bg-white">
-      <div className="mx-auto flex w-full flex-col gap-4 px-4 py-4 sm:px-6 lg:w-[80%] lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-1">
-          <strong className="text-sm font-semibold">
-            {currentTrack ? getStoryTitle(currentTrack) : "En pausa"}
-          </strong>
-          <span className="text-xs text-muted">
-            {currentTrack ? "Al aire · comunidad" : "Elegi un audio"}
-          </span>
-          {sleepTimer > 0 && (
-            <span className="text-xs text-muted">
-              Temporizador: {sleepTimer}m
-            </span>
-          )}
-          {currentTrack && nextTrack && (
-            <span className="text-xs text-muted">
-              Sigue:{" "}
-              {truncateText(
-                getStoryTitle(nextTrack),
-                48
-              )}
-            </span>
-          )}
-          {playerError && (
-            <span className="text-xs text-[#f3b0a3]" role="alert">
-              {playerError}
-            </span>
-          )}
-          {!playerError && playerNotice && (
-            <span className="text-xs text-muted" role="status">
-              {playerNotice}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          {currentTrack && (
-            <audio
-              className="w-full sm:w-64"
-              controls
-              ref={audioRef}
-              src={currentTrack.public_url}
-              onEnded={handleTrackEnded}
-              onPlay={() => {
-                setAutoPlay(true);
-                setPlayerNotice("");
-                setPlayerError("");
-              }}
-              onError={() => {
-                setAutoPlay(false);
-                setPlayerError("Audio no disponible. Proba otro.");
-              }}
-            />
-          )}
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-full border border-sand/80 px-3 py-1 text-xs font-semibold text-ink transition hover:bg-sand/60 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={handleSkip}
-            disabled={!nextTrack}
-          >
-            Saltar
-          </button>
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <span>Temporizador</span>
-            <select
-              className="w-auto rounded-full border border-sand/70 bg-white px-3 py-1 text-xs text-ink"
-              value={sleepTimer}
-              onChange={(event) => setSleepTimer(Number(event.target.value))}
-              disabled={!currentTrack}
-            >
-              <option value={0}>Apagado</option>
-              <option value={15}>15 min</option>
-              <option value={30}>30 min</option>
-              <option value={45}>45 min</option>
-            </select>
-          </label>
-        </div>
-      </div>
-    </div>
+    <Player
+      currentTrack={currentTrack}
+      audioRef={audioRef}
+      onTrackEnded={handleTrackEnded}
+      onSkip={skipToNext}
+      onAutoPlayChange={setAutoPlay}
+      onNoticeChange={setPlayerNotice}
+      onErrorChange={setPlayerError}
+      playerNotice={playerNotice}
+      playerError={playerError}
+      nextTrack={nextTrack}
+      sleepTimer={sleepTimer}
+      onSleepTimerChange={setSleepTimer}
+      playbackRate={playbackRate}
+      onPlaybackRateChange={setPlaybackRate}
+      getTitleFn={getStoryTitle}
+      truncateFn={truncateText}
+    />
   );
 
   return (
@@ -465,6 +331,13 @@ function FeedPage() {
       rightRail={rightRail}
       player={player}
     >
+      {/* ARIA live region para anunciar estados del feed */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {feedLoading && "Cargando historias"}
+        {!feedLoading && feed.length > 0 && `${feed.length} historias cargadas`}
+        {!feedLoading && feed.length === 0 && !feedError && "No hay historias disponibles"}
+      </div>
+
       {!token && (
         <AuthPanel
           email={email}
@@ -476,14 +349,16 @@ function FeedPage() {
           error={authError}
         />
       )}
-      {voteError && (
-        <p className="mt-3 text-sm text-[#a24538]" role="alert">
-          {voteError}
-        </p>
-      )}
 
       {storyId ? (
-        <section className="surface">
+        <section
+          ref={storyModalRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="story-title"
+          className="surface"
+        >
           <button type="button" className="btn-ghost w-fit" onClick={closeStory}>
             Volver al inicio
           </button>
@@ -491,13 +366,23 @@ function FeedPage() {
             <p className="mt-3 text-sm text-muted">Cargando historia...</p>
           )}
           {storyError && (
-            <p className="mt-3 text-sm text-[#a24538]" role="alert">
-              {storyError}
-            </p>
+            <div className="mt-3 surface border-red-400 bg-red-50/50" role="alert">
+              <p className="text-sm text-red-700">{storyError}</p>
+              <button
+                className="btn-primary mt-3"
+                onClick={() => loadStory(storyId)}
+              >
+                Reintentar
+              </button>
+            </div>
           )}
           {!storyLoading && story && (
             <div className="mt-4 rounded-3xl border border-sand/60 bg-white p-5">
-              <h3 className="text-xl">
+              <div
+                className="cover-art h-40 w-full rounded-2xl"
+                style={getCoverStyle(story)}
+              />
+              <h3 id="story-title" className="mt-4 text-xl">
                 {story.title || story.summary || "Historia sin titulo"}
               </h3>
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
@@ -509,12 +394,20 @@ function FeedPage() {
                 {story.tags && story.tags.length > 0 && (
                   <span>{story.tags.join(" · ")}</span>
                 )}
+                {story.user_id && (
+                  <a
+                    href={buildProfileUrl(story.user_id)}
+                    className="text-[11px] text-muted underline decoration-sand/70 transition hover:text-ink"
+                  >
+                    Perfil
+                  </a>
+                )}
               </div>
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={() => handleSelectTrack(story)}
+                  onClick={() => selectTrack(story)}
                 >
                   Escuchar esta historia
                 </button>
@@ -575,71 +468,116 @@ function FeedPage() {
                 </button>
               </div>
             </div>
-            {feedLoading && (
-              <p className="mt-3 text-sm text-muted">Cargando historias...</p>
-            )}
             {feedError && (
-              <p className="mt-3 text-sm text-[#a24538]" role="alert">
-                {feedError}
-              </p>
+              <div className="mt-3 surface border-red-400 bg-red-50/50" role="alert">
+                <p className="text-sm text-red-700">{feedError}</p>
+                <button
+                  className="btn-primary mt-3"
+                  onClick={() => loadFeed(selectedTags)}
+                >
+                  Reintentar
+                </button>
+              </div>
             )}
             <div className="mt-4 grid gap-4">
-              {sortedFeed.map((item) => (
-                <article
-                  key={item.id}
-                  className="flex flex-col gap-4 rounded-3xl border border-sand/70 bg-white p-4 shadow-lift"
-                >
-                  <button
-                    type="button"
-                    className="group grid gap-4 text-left sm:grid-cols-[110px_1fr]"
-                    onClick={() => openStory(item.id)}
-                    aria-label={`Ver historia: ${getStoryTitle(item)}`}
-                  >
-                    <div className="cover-art h-28 sm:h-24 sm:w-24" />
-                    <div>
-                      <h4 className="text-base">
-                        {truncateText(getStoryTitle(item), 64)}
-                      </h4>
-                      <p className="mt-2 text-sm text-muted">
-                        {item.summary || "Esperando detalles"}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {(item.tags || []).map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex items-center rounded-full border border-sand/70 bg-white px-3 py-1 text-[11px] text-muted"
+              {feedLoading ? (
+                <>
+                  <SkeletonCard />
+                  <SkeletonCard />
+                  <SkeletonCard />
+                </>
+              ) : (
+                sortedFeed.map((item) => {
+                  const isPlaying = playingId === item.id;
+                  const applauded = applaudedIds.includes(item.id);
+                  return (
+                    <article
+                      key={item.id}
+                      className="flex flex-col gap-3 rounded-3xl border border-sand/70 bg-white p-4 shadow-lift"
+                    >
+                      <div className="grid gap-4 sm:grid-cols-[110px_1fr]">
+                        <button
+                          type="button"
+                          className={`cover-art cover-control h-28 sm:h-24 sm:w-24 ${
+                            isPlaying ? "is-playing" : ""
+                          }`}
+                          style={getCoverStyle(item)}
+                          onClick={() => togglePlay(item)}
+                          aria-pressed={isPlaying}
+                          aria-label={
+                            isPlaying
+                              ? `Pausar ${getStoryTitle(item)}`
+                              : `Reproducir ${getStoryTitle(item)}`
+                          }
+                        >
+                          <span className="cover-mask" aria-hidden="true" />
+                          <span className="cover-icon cover-icon-play" aria-hidden="true" />
+                          <span className="cover-icon cover-icon-pause" aria-hidden="true" />
+                        </button>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            className="text-left"
+                            onClick={() => openStory(item.id)}
+                            aria-label={`Ver historia: ${getStoryTitle(item)}`}
                           >
-                            {tag}
-                          </span>
-                        ))}
+                            <h4 className="text-base">
+                              {truncateText(getStoryTitle(item), 64)}
+                            </h4>
+                          </button>
+                          <p className="text-sm text-muted">
+                            {item.summary || "Esperando detalles"}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {(item.tags || []).map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex items-center rounded-full border border-sand/70 bg-white px-3 py-1 text-[11px] text-muted"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {item.user_id && (
+                              <a
+                                href={buildProfileUrl(item.user_id)}
+                                className="text-[11px] text-muted underline decoration-sand/70 transition hover:text-ink"
+                              >
+                                Perfil
+                              </a>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => handleSelectTrack(item)}
-                    >
-                      Escuchar
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-outline"
-                      onClick={() => handleVote(item.id)}
-                    >
-                      Me gusta {item.vote_count}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => openStory(item.id)}
-                    >
-                      Ver historia
-                    </button>
-                  </div>
-                </article>
-              ))}
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          className={`applause-btn ${
+                            applauded ? "applause-btn--active" : ""
+                          }`}
+                          onClick={() => handleVote(item.id)}
+                          disabled={applauded}
+                          aria-label={`Aplaudir historia ${getStoryTitle(item)}`}
+                          title={applauded ? "Aplauso enviado" : "Aplaudir"}
+                        >
+                          <span className="applause-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                d="M5 12.5l2.2 7.2h9.4l2-6.5M8.3 12.1l1.6-6.1M12 12.1l1.2-6.5M15.8 12.1l-1-5.3M18.3 11.6l.7-2.6"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </span>
+                          <span className="text-xs">{item.vote_count}</span>
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
             </div>
             {!feedLoading && feed.length === 0 && !feedError && (
               <p className="mt-4 text-sm text-muted">
@@ -709,37 +647,57 @@ function FeedPage() {
             )}
             {!lowSerendipiaLoading && !lowSerendipiaError && lowSerendipia.length > 0 ? (
               <div className="mt-4 grid gap-3">
-                {lowSerendipia.map((item) => (
-                  <div
-                    key={`low-${item.id}`}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-sand/70 bg-white p-4 shadow-lift"
-                  >
-                    <div className="min-w-[200px] flex-1">
-                      <strong className="text-sm">
-                        {truncateText(getStoryTitle(item), 64)}
-                      </strong>
-                      <p className="mt-1 text-xs text-muted">
-                        {item.summary || "Audio con baja serendipia"}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                {lowSerendipia.map((item) => {
+                  const isPlaying = playingId === item.id;
+                  return (
+                    <div
+                      key={`low-${item.id}`}
+                      className="flex flex-wrap items-center gap-3 rounded-3xl border border-sand/70 bg-white p-4 shadow-lift"
+                    >
                       <button
                         type="button"
-                        className="btn-ghost"
-                        onClick={() => handleSelectTrack(item)}
+                        className={`cover-art cover-control h-16 w-16 ${
+                          isPlaying ? "is-playing" : ""
+                        }`}
+                        style={getCoverStyle(item)}
+                        onClick={() => togglePlay(item)}
+                        aria-pressed={isPlaying}
+                        aria-label={
+                          isPlaying
+                            ? `Pausar ${getStoryTitle(item)}`
+                            : `Reproducir ${getStoryTitle(item)}`
+                        }
                       >
-                        Escuchar
+                        <span className="cover-mask" aria-hidden="true" />
+                        <span className="cover-icon cover-icon-play" aria-hidden="true" />
+                        <span className="cover-icon cover-icon-pause" aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        className="btn-outline"
-                        onClick={() => openStory(item.id)}
-                      >
-                        Ver historia
-                      </button>
+                      <div className="min-w-[200px] flex-1">
+                        <button
+                          type="button"
+                          className="text-left"
+                          onClick={() => openStory(item.id)}
+                          aria-label={`Ver historia: ${getStoryTitle(item)}`}
+                        >
+                          <strong className="text-sm">
+                            {truncateText(getStoryTitle(item), 64)}
+                          </strong>
+                        </button>
+                        <p className="mt-1 text-xs text-muted">
+                          {item.summary || "Audio con baja serendipia"}
+                        </p>
+                        {item.user_id && (
+                          <a
+                            href={buildProfileUrl(item.user_id)}
+                            className="mt-2 inline-flex text-[11px] text-muted underline decoration-sand/70 transition hover:text-ink"
+                          >
+                            Perfil
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               !lowSerendipiaLoading &&
@@ -778,6 +736,9 @@ function FeedPage() {
           </section>
         </>
       )}
+
+      {/* Toast notifications */}
+      {toast && <Toast {...toast} onClose={hideToast} />}
     </Layout>
   );
 }
@@ -787,57 +748,7 @@ function getStoryTitle(item) {
   return item.title || item.summary || "Sin titulo";
 }
 
-function pickNextTrack(feed, currentTrack) {
-  if (!feed.length) return null;
-  if (!currentTrack) return feed[0];
-
-  const currentIndex = feed.findIndex((item) => item.id === currentTrack.id);
-  if (currentIndex === -1) return feed[0];
-
-  const currentTags = new Set(
-    (currentTrack.tags || []).map((tag) => String(tag).toLowerCase())
-  );
-
-  if (currentTags.size > 0) {
-    for (let offset = 1; offset < feed.length; offset += 1) {
-      const candidate = feed[(currentIndex + offset) % feed.length];
-      const candidateTags = (candidate.tags || []).map((tag) =>
-        String(tag).toLowerCase()
-      );
-      if (candidateTags.some((tag) => currentTags.has(tag))) {
-        return candidate;
-      }
-    }
-  }
-
-  if (feed.length > 1) {
-    return feed[(currentIndex + 1) % feed.length];
-  }
-  return null;
-}
-
-function parseTagsFromUrl() {
-  if (typeof window === "undefined") return [];
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get("tags") || params.get("tag") || "";
-  return raw
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function updateTagsInUrl(tags) {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  if (tags.length) {
-    url.searchParams.set("tags", tags.join(","));
-  } else {
-    url.searchParams.delete("tags");
-  }
-  url.searchParams.delete("tag");
-  window.history.replaceState({}, "", url.toString());
-}
-
+// Story modal helpers (specific to FeedPage)
 function parseStoryFromUrl() {
   if (typeof window === "undefined") return "";
   const params = new URLSearchParams(window.location.search);
@@ -855,17 +766,41 @@ function updateStoryInUrl(storyId) {
   window.history.pushState({}, "", url.toString());
 }
 
-function buildFeedUrl(tags) {
-  if (!tags.length) return `${apiBase}/feed`;
-  const params = new URLSearchParams();
-  params.set("tags", tags.join(","));
-  return `${apiBase}/feed?${params.toString()}`;
-}
-
+// UI helpers
 function truncateText(text, max) {
   if (!text) return "";
   if (text.length <= max) return text;
   return `${text.slice(0, max).trim()}...`;
+}
+
+function getCoverStyle(item) {
+  if (!item?.cover_url) return undefined;
+  return { backgroundImage: `url(${item.cover_url})` };
+}
+
+function buildProfileUrl(userId) {
+  if (!userId) return "#";
+  const params = new URLSearchParams({ id: userId });
+  return `/profile-public/?${params.toString()}`;
+}
+
+function loadApplause(token) {
+  if (!token || typeof window === "undefined") return [];
+  const raw = window.localStorage.getItem(`winivox.applause.${token}`);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveApplause(token, current, audioId) {
+  const next = current.includes(audioId) ? current : [...current, audioId];
+  if (!token || typeof window === "undefined") return next;
+  window.localStorage.setItem(`winivox.applause.${token}`, JSON.stringify(next));
+  return next;
 }
 
 export default FeedPage;

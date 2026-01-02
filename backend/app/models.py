@@ -20,6 +20,9 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
+    bio = Column(Text, nullable=True)
+    social_links = Column(JSON, nullable=True)
+    profile_image_key = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -41,6 +44,7 @@ class AudioSubmission(Base):
     anonymization_mode = Column(String, default="SOFT", nullable=False)
     description = Column(Text, nullable=True)
     tags_suggested = Column(JSON, nullable=True)
+    cover_image_key = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     published_at = Column(DateTime, nullable=True)
 

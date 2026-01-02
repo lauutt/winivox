@@ -4,6 +4,9 @@
 - id
 - email
 - password_hash
+- bio
+- social_links
+- profile_image_key
 - created_at
 
 ## audio_submissions
@@ -12,6 +15,7 @@
 - status
 - original_audio_key
 - public_audio_key
+- cover_image_key
 - transcript_preview
 - title
 - summary

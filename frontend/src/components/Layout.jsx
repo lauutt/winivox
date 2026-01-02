@@ -4,6 +4,7 @@ import logoWebp from "../img/logo_winivox.webp";
 const navItems = [
   { id: "feed", label: "Inicio", href: "/" },
   { id: "library", label: "Mi biblioteca", href: "/library/" },
+  { id: "profile", label: "Mi perfil", href: "/profile/" },
   { id: "upload", label: "Subir audio", href: "/upload/" }
 ];
 
@@ -19,9 +20,22 @@ function Layout({
   rightRail,
   player
 }) {
+  const hasRightRail = Boolean(rightRail);
   return (
     <div className="relative">
-      <div className="mx-auto flex min-h-screen w-full flex-col gap-6 px-5 pb-36 pt-6 sm:px-6 lg:w-[80%] lg:px-0 lg:grid lg:grid-cols-[240px_minmax(0,1fr)_280px] lg:items-start xl:grid-cols-[260px_minmax(0,1fr)_300px]">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lift"
+      >
+        Saltar al contenido principal
+      </a>
+      <div
+        className={`mx-auto flex min-h-screen w-full flex-col gap-6 px-5 pb-48 pt-6 sm:px-6 lg:w-[80%] lg:px-0 lg:pb-40 lg:grid lg:items-start ${
+          hasRightRail
+            ? "lg:grid-cols-[240px_minmax(0,1fr)_280px] xl:grid-cols-[260px_minmax(0,1fr)_300px]"
+            : "lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]"
+        }`}
+      >
         <aside className="surface-glass flex flex-col gap-4 lg:sticky lg:top-6 animate-fade-up">
           <div className="flex items-center gap-3">
             <picture className="relative h-12 w-12 overflow-hidden rounded-2xl bg-accent2/80 shadow-soft">
@@ -64,7 +78,7 @@ function Layout({
           </div>
         </aside>
 
-        <main className="flex min-w-0 flex-col gap-6 animate-fade-up animate-delay-100">
+        <main id="main-content" tabIndex={-1} className="flex min-w-0 flex-col gap-6 animate-fade-up animate-delay-100">
           <header className="rounded-3xl border border-sand/80 bg-white p-6 shadow-soft">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -121,9 +135,11 @@ function Layout({
           </footer>
         </main>
 
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-6 animate-fade-up animate-delay-200">
-          {rightRail}
-        </aside>
+        {hasRightRail && (
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 animate-fade-up animate-delay-200">
+            {rightRail}
+          </aside>
+        )}
       </div>
 
       {player}

@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import AudioSubmission, Vote
+from ..models import AudioSubmission, User, Vote
 from ..schemas import FeedItem, StoryResponse
 from ..storage import generate_presigned_get
 from ..settings import settings
@@ -42,6 +42,13 @@ def _normalize_tag_list(tags: Optional[List[str]]) -> List[str]:
     return normalized
 
 
+def _build_cover_url(submission: AudioSubmission, profile_image_key: str | None) -> str | None:
+    cover_key = submission.cover_image_key or profile_image_key
+    if not cover_key:
+        return None
+    return generate_presigned_get(settings.s3_public_bucket, cover_key)
+
+
 @router.get("", response_model=List[FeedItem])
 def get_feed(
     tags: Optional[str] = Query(default=None),
@@ -55,8 +62,9 @@ def get_feed(
         .subquery()
     )
     query = (
-        db.query(AudioSubmission, vote_counts.c.vote_count)
+        db.query(AudioSubmission, User.profile_image_key, vote_counts.c.vote_count)
         .outerjoin(vote_counts, AudioSubmission.id == vote_counts.c.audio_id)
+        .outerjoin(User, AudioSubmission.user_id == User.id)
         .filter(AudioSubmission.status == "APPROVED")
     )
     use_postgres = _is_postgres(db)
@@ -69,26 +77,29 @@ def get_feed(
     items = query.order_by(AudioSubmission.published_at.desc()).limit(200).all()
     if tag_list and not use_postgres:
         filtered = []
-        for item, vote_count in items:
+        for item, profile_image_key, vote_count in items:
             tags_normalized = _normalize_tag_list(item.tags)
             if any(tag in tags_normalized for tag in tag_list):
-                filtered.append((item, vote_count))
+                filtered.append((item, profile_image_key, vote_count))
         items = filtered[:50]
     else:
         items = items[:50]
 
     response: List[FeedItem] = []
-    for item, vote_count in items:
+    for item, profile_image_key, vote_count in items:
         if not item.public_audio_key:
             continue
         public_url = generate_presigned_get(settings.s3_public_bucket, item.public_audio_key)
+        cover_url = _build_cover_url(item, profile_image_key)
         response.append(
             FeedItem(
                 id=item.id,
+                user_id=item.user_id,
                 transcript_preview=None,
                 title=item.title,
                 summary=item.summary,
                 tags=item.tags,
+                cover_url=cover_url,
                 public_url=public_url,
                 published_at=item.published_at,
                 vote_count=vote_count or 0,
@@ -141,8 +152,9 @@ def get_low_serendipia(
         .subquery()
     )
     items = (
-        db.query(AudioSubmission, vote_counts.c.vote_count)
+        db.query(AudioSubmission, User.profile_image_key, vote_counts.c.vote_count)
         .outerjoin(vote_counts, AudioSubmission.id == vote_counts.c.audio_id)
+        .outerjoin(User, AudioSubmission.user_id == User.id)
         .filter(
             AudioSubmission.status == "APPROVED",
             AudioSubmission.viral_analysis.isnot(None),
@@ -153,19 +165,22 @@ def get_low_serendipia(
     )
 
     response: List[FeedItem] = []
-    for item, vote_count in items:
+    for item, profile_image_key, vote_count in items:
         if not item.public_audio_key:
             continue
         public_url = generate_presigned_get(
             settings.s3_public_bucket, item.public_audio_key
         )
+        cover_url = _build_cover_url(item, profile_image_key)
         response.append(
             FeedItem(
                 id=item.id,
+                user_id=item.user_id,
                 transcript_preview=None,
                 title=item.title,
                 summary=item.summary,
                 tags=item.tags,
+                cover_url=cover_url,
                 public_url=public_url,
                 published_at=item.published_at,
                 vote_count=vote_count or 0,
@@ -182,25 +197,29 @@ def get_story(audio_id: str, db: Session = Depends(get_db)) -> StoryResponse:
         .subquery()
     )
     item = (
-        db.query(AudioSubmission, vote_counts.c.vote_count)
+        db.query(AudioSubmission, User.profile_image_key, vote_counts.c.vote_count)
         .outerjoin(vote_counts, AudioSubmission.id == vote_counts.c.audio_id)
+        .outerjoin(User, AudioSubmission.user_id == User.id)
         .filter(AudioSubmission.status == "APPROVED", AudioSubmission.id == audio_id)
         .first()
     )
     if not item:
         raise HTTPException(status_code=404, detail="Story not found")
-    submission, vote_count = item
+    submission, profile_image_key, vote_count = item
     if not submission.public_audio_key:
         raise HTTPException(status_code=404, detail="Story not found")
     public_url = generate_presigned_get(
         settings.s3_public_bucket, submission.public_audio_key
     )
+    cover_url = _build_cover_url(submission, profile_image_key)
     return StoryResponse(
         id=submission.id,
+        user_id=submission.user_id,
         title=submission.title,
         summary=submission.summary,
         tags=submission.tags,
         transcript=submission.transcript_preview,
+        cover_url=cover_url,
         public_url=public_url,
         published_at=submission.published_at,
         vote_count=vote_count or 0,

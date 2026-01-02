@@ -47,3 +47,57 @@ def test_submission_flow(client, monkeypatch):
     listed = client.get("/submissions", headers=headers)
     assert listed.status_code == 200
     assert len(listed.json()) == 1
+
+
+def test_delete_submission(client, monkeypatch):
+    from app.api import submissions as submissions_api
+
+    class DummyS3:
+        def delete_object(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        submissions_api,
+        "generate_presigned_put",
+        lambda *args, **kwargs: "http://example.com/upload",
+    )
+    monkeypatch.setattr(submissions_api, "enqueue_submission", lambda *args: None)
+    monkeypatch.setattr(
+        submissions_api,
+        "get_internal_s3_client",
+        lambda: DummyS3(),
+    )
+
+    register = client.post(
+        "/auth/register", json={"email": "deleter@example.com", "password": "pass-123"}
+    )
+    token = register.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = client.post(
+        "/submissions",
+        json={
+            "filename": "clip.wav",
+            "content_type": "audio/wav",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200
+    submission_id = res.json()["id"]
+
+    uploaded = client.post(
+        f"/submissions/{submission_id}/uploaded",
+        json={
+            "anonymization_mode": "SOFT",
+        },
+        headers=headers,
+    )
+    assert uploaded.status_code == 200
+
+    deleted = client.delete(f"/submissions/{submission_id}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+
+    listed = client.get("/submissions", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json() == []

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -15,10 +15,17 @@ def create_vote(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ) -> VoteResponse:
+    existing = (
+        db.query(Vote)
+        .filter(Vote.user_id == user.id, Vote.audio_id == payload.audio_id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Already voted")
+
     vote = Vote(user_id=user.id, audio_id=payload.audio_id)
     db.add(vote)
     db.commit()
     db.refresh(vote)
 
     return VoteResponse(id=vote.id, audio_id=vote.audio_id, created_at=vote.created_at)
-

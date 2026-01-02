@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
@@ -24,9 +24,41 @@ class UserResponse(BaseModel):
     email: EmailStr
 
 
+class UserProfileResponse(BaseModel):
+    id: str
+    email: EmailStr
+    bio: Optional[str] = None
+    social_links: Optional[Dict[str, str]] = None
+    profile_photo_url: Optional[str] = None
+
+
+class UserProfileUpdate(BaseModel):
+    bio: Optional[str] = None
+    social_links: Optional[Dict[str, str]] = None
+    profile_photo_key: Optional[str] = None
+
+
+class PublicProfileResponse(BaseModel):
+    id: str
+    bio: Optional[str] = None
+    social_links: Optional[Dict[str, str]] = None
+    profile_photo_url: Optional[str] = None
+
+
 class SubmissionCreate(BaseModel):
     filename: str
     content_type: str
+
+
+class ImageUploadRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class ImageUploadResponse(BaseModel):
+    upload_url: str
+    upload_method: str
+    object_key: str
 
 
 class SubmissionUploadResponse(BaseModel):
@@ -40,6 +72,7 @@ class SubmissionUploadedRequest(BaseModel):
     anonymization_mode: str = "SOFT"
     description: Optional[str] = None
     tags_suggested: Optional[List[str]] = None
+    cover_image_key: Optional[str] = None
 
 
 class SubmissionResponse(BaseModel):
@@ -55,6 +88,7 @@ class SubmissionResponse(BaseModel):
     anonymization_mode: str
     description: Optional[str] = None
     tags_suggested: Optional[List[str]] = None
+    cover_url: Optional[str] = None
     created_at: datetime
     published_at: Optional[datetime] = None
 
@@ -63,10 +97,12 @@ class SubmissionResponse(BaseModel):
 
 class FeedItem(BaseModel):
     id: str
+    user_id: str
     transcript_preview: Optional[str]
     title: Optional[str] = None
     summary: Optional[str]
     tags: Optional[List[str]]
+    cover_url: Optional[str] = None
     public_url: str
     published_at: Optional[datetime]
     vote_count: int = 0
@@ -74,10 +110,12 @@ class FeedItem(BaseModel):
 
 class StoryResponse(BaseModel):
     id: str
+    user_id: str
     title: Optional[str] = None
     summary: Optional[str]
     tags: Optional[List[str]]
     transcript: Optional[str]
+    cover_url: Optional[str] = None
     public_url: str
     published_at: Optional[datetime]
     vote_count: int = 0

@@ -4,7 +4,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from redis.exceptions import RedisError
 from sqlalchemy import text
 
-from .api import auth, events, feed, submissions, votes
+from .api import auth, events, feed, profile, submissions, votes
 from .db import Base, engine, ensure_schema
 from .schemas import HealthResponse
 from .queue import get_redis_client
@@ -68,6 +68,7 @@ def health() -> HealthResponse:
 
 
 app.include_router(auth.router)
+app.include_router(profile.router)
 app.include_router(submissions.router)
 app.include_router(feed.router)
 app.include_router(votes.router)

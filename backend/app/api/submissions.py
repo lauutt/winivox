@@ -9,21 +9,39 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_current_user
 from ..events import record_event
-from ..models import AudioSubmission, User
+from ..models import AudioSubmission, Event, User, Vote
 from ..queue import enqueue_submission
 from ..schemas import (
+    ImageUploadRequest,
+    ImageUploadResponse,
     SubmissionCreate,
     SubmissionResponse,
     SubmissionUploadResponse,
     SubmissionUploadedRequest,
 )
 from ..settings import settings
-from ..storage import generate_presigned_put, get_internal_s3_client
+from ..storage import generate_presigned_get, generate_presigned_put, get_internal_s3_client
 from ..db import get_db
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 
 ALLOWED_ANON = {"OFF", "SOFT", "MEDIUM", "STRONG"}
+
+
+def build_cover_url(submission: AudioSubmission, fallback_key: str | None) -> str | None:
+    cover_key = submission.cover_image_key or fallback_key
+    if not cover_key:
+        return None
+    return generate_presigned_get(settings.s3_public_bucket, cover_key)
+
+
+def build_submission_response(
+    submission: AudioSubmission,
+    fallback_key: str | None,
+) -> SubmissionResponse:
+    payload = SubmissionResponse.model_validate(submission).model_dump()
+    payload["cover_url"] = build_cover_url(submission, fallback_key)
+    return SubmissionResponse(**payload)
 
 
 @router.post("", response_model=SubmissionUploadResponse)
@@ -90,6 +108,8 @@ def mark_uploaded(
     submission.anonymization_mode = payload.anonymization_mode
     submission.description = payload.description
     submission.tags_suggested = payload.tags_suggested
+    if payload.cover_image_key:
+        submission.cover_image_key = payload.cover_image_key
     db.commit()
 
     record_event(
@@ -104,7 +124,7 @@ def mark_uploaded(
         raise HTTPException(status_code=503, detail="Queue unavailable") from exc
 
     db.refresh(submission)
-    return SubmissionResponse.model_validate(submission)
+    return build_submission_response(submission, user.profile_image_key)
 
 
 @router.post("/{submission_id}/reprocess", response_model=SubmissionResponse)
@@ -139,7 +159,7 @@ def reprocess_submission(
     enqueue_submission(submission.id)
 
     db.refresh(submission)
-    return SubmissionResponse.model_validate(submission)
+    return build_submission_response(submission, user.profile_image_key)
 
 
 @router.get("/{submission_id}", response_model=SubmissionResponse)
@@ -155,7 +175,7 @@ def get_submission(
     )
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
-    return SubmissionResponse.model_validate(submission)
+    return build_submission_response(submission, user.profile_image_key)
 
 
 @router.get("", response_model=List[SubmissionResponse])
@@ -169,7 +189,42 @@ def list_submissions(
         .order_by(AudioSubmission.created_at.desc())
         .all()
     )
-    return [SubmissionResponse.model_validate(item) for item in submissions]
+    return [
+        build_submission_response(item, user.profile_image_key) for item in submissions
+    ]
+
+
+@router.post("/{submission_id}/cover", response_model=ImageUploadResponse)
+def create_cover_upload(
+    submission_id: str,
+    payload: ImageUploadRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ImageUploadResponse:
+    submission = (
+        db.query(AudioSubmission)
+        .filter(AudioSubmission.id == submission_id, AudioSubmission.user_id == user.id)
+        .first()
+    )
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if not payload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Invalid image type")
+
+    ext = os.path.splitext(payload.filename)[1] or ".jpg"
+    object_key = f"{user.id}/{submission.id}/cover{ext}"
+    try:
+        upload_url = generate_presigned_put(
+            settings.s3_public_bucket, object_key, payload.content_type
+        )
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="Storage unavailable") from exc
+
+    return ImageUploadResponse(
+        upload_url=upload_url,
+        upload_method="PUT",
+        object_key=object_key,
+    )
 
 
 @router.delete("/{submission_id}")
@@ -186,26 +241,34 @@ def cancel_submission(
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # Solo permitir cancelar si está en CREATED (no procesado todavía)
-    if submission.status != "CREATED":
-        raise HTTPException(
-            status_code=400, detail="Cannot cancel submission in this state"
-        )
+    # Limpiar votos/eventos asociados
+    db.query(Vote).filter(Vote.audio_id == submission.id).delete(
+        synchronize_session=False
+    )
+    db.query(Event).filter(Event.submission_id == submission.id).delete(
+        synchronize_session=False
+    )
 
-    # Eliminar archivo de MinIO (best effort)
-    if submission.original_audio_key:
-        try:
-            client = get_internal_s3_client()
-            client.delete_object(
-                Bucket=settings.s3_private_bucket, Key=submission.original_audio_key
-            )
-        except Exception:
-            pass  # Ignorar errores de eliminación
+    # Eliminar archivos de MinIO (best effort)
+    keys_to_delete = [
+        (settings.s3_private_bucket, submission.original_audio_key),
+        (settings.s3_public_bucket, submission.public_audio_key),
+        (settings.s3_public_bucket, submission.cover_image_key),
+    ]
+    try:
+        client = get_internal_s3_client()
+        for bucket, key in keys_to_delete:
+            if not key:
+                continue
+            try:
+                client.delete_object(Bucket=bucket, Key=key)
+            except Exception:
+                pass
+    except Exception:
+        pass  # Ignorar errores de storage
 
     # Eliminar submission de DB
     db.delete(submission)
     db.commit()
 
-    record_event(db, "audio.cancelled", submission_id, {})
-
-    return {"status": "cancelled"}
+    return {"status": "deleted"}

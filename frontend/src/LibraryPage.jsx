@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
 import Layout from "./components/Layout.jsx";
-import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
+import { useAuth } from "./hooks/useAuth.js";
+import { apiBase, fetchJson, logDev } from "./lib/api.js";
 
 const STEP_LABELS = {
   0: "En cola",
@@ -16,11 +17,13 @@ const STEP_LABELS = {
 const TERMINAL_STATUSES = new Set(["APPROVED", "REJECTED", "QUARANTINED"]);
 
 function LibraryPage() {
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
+  // Custom hooks
+  const { token, email, password, authError, headers, setEmail, setPassword, handleRegister, handleLogin, handleLogout } = useAuth();
+
+  // Auth check (específico de LibraryPage)
   const [authChecked, setAuthChecked] = useState(false);
+
+  // Submissions state
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submissionsError, setSubmissionsError] = useState("");
@@ -40,10 +43,10 @@ function LibraryPage() {
     data: null
   });
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Refs
   const refreshTimerRef = useRef(null);
   const streamRef = useRef(null);
-
-  const headers = useMemo(() => authHeaders(token), [token]);
 
   const refreshSubmissions = async () => {
     setSubmissionsLoading(true);
@@ -75,7 +78,7 @@ function LibraryPage() {
     }, 600);
   };
 
-  const handleReprocess = async (submissionId) => {
+  const handleReprocess = useCallback(async (submissionId) => {
     if (!token) return;
     try {
       await fetchJson(`${apiBase}/submissions/${submissionId}/reprocess`, {
@@ -86,9 +89,26 @@ function LibraryPage() {
     } catch {
       setSubmissionsError("No se pudo reprocesar. Proba de nuevo.");
     }
-  };
+  }, [token, headers, scheduleRefresh]);
 
-  const toggleTimeline = async (submissionId) => {
+  const handleDelete = useCallback(async (submissionId) => {
+    if (!token) return;
+    const confirmed = window.confirm(
+      "¿Querés borrar esta historia? Se elimina de tu biblioteca y del feed."
+    );
+    if (!confirmed) return;
+    try {
+      await fetchJson(`${apiBase}/submissions/${submissionId}`, {
+        method: "DELETE",
+        headers
+      });
+      await refreshSubmissions();
+    } catch {
+      setSubmissionsError("No se pudo borrar la historia. Proba de nuevo.");
+    }
+  }, [token, headers, refreshSubmissions]);
+
+  const toggleTimeline = useCallback(async (submissionId) => {
     const isOpen = timelineOpen[submissionId];
     if (isOpen) {
       setTimelineOpen((prev) => ({ ...prev, [submissionId]: false }));
@@ -114,7 +134,7 @@ function LibraryPage() {
       }
     }
     setTimelineOpen((prev) => ({ ...prev, [submissionId]: true }));
-  };
+  }, [timelineOpen, eventsById, headers]);
 
   useEffect(() => {
     if (!token) {
@@ -239,130 +259,7 @@ function LibraryPage() {
     };
   }, []);
 
-  const handleRegister = async () => {
-    setAuthError("");
-    const res = await fetch(`${apiBase}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-    if (!res.ok) {
-      setAuthError("No se pudo crear la cuenta");
-      return;
-    }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-    setAuthChecked(false);
-  };
-
-  const handleLogin = async () => {
-    setAuthError("");
-    const form = new URLSearchParams();
-    form.append("username", email);
-    form.append("password", password);
-    const res = await fetch(`${apiBase}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form
-    });
-    if (!res.ok) {
-      setAuthError("No se pudo iniciar sesion");
-      return;
-    }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-    setAuthChecked(false);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    setToken(null);
-  };
-
-  const rightRail = (
-    <>
-      <div className="surface-glass">
-        <h4 className="text-base">Tu audio, paso a paso</h4>
-        <ol className="mt-3 grid gap-2 pl-4 text-sm text-muted">
-          <li>Subido</li>
-          <li>En proceso</li>
-          <li>En la radio</li>
-        </ol>
-      </div>
-      <div className="surface-glass">
-        <h4 className="text-base">Actualizaciones</h4>
-        <p className="mt-2 text-sm text-muted">
-          Vas a ver cambios en vivo mientras algo se procesa.
-        </p>
-        {streamError && (
-          <p className="mt-2 text-sm text-[#a24538]" role="alert">
-            {streamError}
-          </p>
-        )}
-      </div>
-      <div className="surface-glass">
-        <div className="flex items-center justify-between">
-          <h4 className="text-base">Estado del sistema</h4>
-          <button
-            type="button"
-            className="btn-icon"
-            onClick={fetchHealth}
-            disabled={healthStatus.loading}
-            aria-label="Actualizar estado del sistema"
-            title="Actualizar estado del sistema"
-          >
-            ↻
-          </button>
-        </div>
-        {healthStatus.loading && (
-          <span className="mt-3 block text-xs text-muted">Chequeando...</span>
-        )}
-        {!healthStatus.loading && healthStatus.error && (
-          <span className="mt-3 block text-sm text-[#a24538]">
-            {healthStatus.error}
-          </span>
-        )}
-        {!healthStatus.loading && healthStatus.data && (
-          <div className="mt-3 grid gap-2 text-xs text-muted">
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  healthStatus.data.db_ready ? "bg-emerald-600" : "bg-[#a24538]"
-                }`}
-              />
-              <span>Base de datos</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  healthStatus.data.storage_ready ? "bg-emerald-600" : "bg-[#a24538]"
-                }`}
-              />
-              <span>Almacenamiento</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  healthStatus.data.queue_ready ? "bg-emerald-600" : "bg-[#a24538]"
-                }`}
-              />
-              <span>Cola</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  healthStatus.data.llm_ready ? "bg-emerald-600" : "bg-amber-500"
-                }`}
-              />
-              <span>LLM</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
+  // Auth functions now come from useAuth hook
 
   const pending = submissions.filter(
     (item) => !TERMINAL_STATUSES.has(item.status)
@@ -402,8 +299,17 @@ function LibraryPage() {
       heroCopy="Aca vas a ver el estado de tus audios hasta que se suman a la radio."
       heroBadgeLabel="Estado"
       heroBadgeValue="En vivo"
-      rightRail={rightRail}
     >
+      {/* ARIA live region para anunciar actualizaciones */}
+      {token && (
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {liveState === "live" && `Conexión en vivo establecida. ${submissions.length} audios en biblioteca.`}
+          {liveState === "connecting" && "Conectando con el servidor"}
+          {liveState === "error" && streamError && `Error de conexión: ${streamError}`}
+          {lastUpdated && !submissionsLoading && `Biblioteca actualizada hace ${Math.floor((new Date() - lastUpdated) / 1000)} segundos`}
+        </div>
+      )}
+
       {!token && authChecked && (
         <AuthPanel
           email={email}
@@ -521,6 +427,11 @@ function LibraryPage() {
                         )}`}
                         aria-hidden="true"
                       />
+                      <div
+                        className="cover-art h-16 w-16 rounded-2xl border border-sand/70"
+                        style={getCoverStyle(item)}
+                        aria-label="Portada del audio"
+                      />
                       <div className="flex min-w-[200px] flex-1 flex-col gap-1">
                         <strong className="text-sm">
                           {truncateText(getSubmissionTitle(item), 72)}
@@ -572,6 +483,13 @@ function LibraryPage() {
                             title="Reprocesar audio"
                           >
                             ↻
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-ghost text-xs text-[#a24538]"
+                            onClick={() => handleDelete(item.id)}
+                          >
+                            Borrar
                           </button>
                         </div>
                         {item.status === "APPROVED" && (
@@ -674,6 +592,11 @@ function truncateText(text, max) {
   if (!text) return "";
   if (text.length <= max) return text;
   return `${text.slice(0, max).trim()}...`;
+}
+
+function getCoverStyle(item) {
+  if (!item?.cover_url) return undefined;
+  return { backgroundImage: `url(${item.cover_url})` };
 }
 
 function getProgress(step) {

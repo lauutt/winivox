@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
 import Layout from "./components/Layout.jsx";
-import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
+import { useAuth } from "./hooks/useAuth.js";
+import { apiBase, fetchJson, logDev } from "./lib/api.js";
 
 function UploadPage() {
-  // Estados de autenticación
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
+  // Custom hooks
+  const { token, email, password, authError, headers, setEmail, setPassword, handleRegister, handleLogin, handleLogout } = useAuth();
+
+  // Auth check (específico de UploadPage)
   const [authChecked, setAuthChecked] = useState(false);
 
   // Estados del nuevo flujo de upload (2 pasos)
@@ -17,11 +17,18 @@ function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState({
     status: "idle", // idle | uploading | uploaded | error
     message: "",
+    percentage: 0, // 0-100
   });
   const [formData, setFormData] = useState({
     anonymizationMode: "SOFT",
     description: "",
     tagsSuggested: "",
+  });
+  const [coverUpload, setCoverUpload] = useState({
+    status: "idle",
+    message: "",
+    previewUrl: "",
+    objectKey: ""
   });
 
   // Estados de grabación (mantener funcionalidad existente)
@@ -36,9 +43,7 @@ function UploadPage() {
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  const headers = useMemo(() => authHeaders(token), [token]);
-
-  // Verificar autenticación
+  // Verificar autenticación con el backend
   useEffect(() => {
     if (!token) {
       setAuthChecked(true);
@@ -51,69 +56,141 @@ function UploadPage() {
       })
       .catch((error) => {
         if (error.status === 401) {
-          localStorage.removeItem("token");
-          setToken(null);
+          handleLogout(); // Usa el logout del hook
           setAuthChecked(true);
           return;
         }
         setAuthChecked(true);
       });
-  }, [token, headers]);
+  }, [token, headers, handleLogout]);
 
-  // Handlers de autenticación
-  const handleRegister = async () => {
-    setAuthError("");
-    const res = await fetch(`${apiBase}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
+  // Helper: Upload con XMLHttpRequest para tracking de progreso
+  const uploadToMinioWithProgress = useCallback((url, file, contentType) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100);
+          setUploadProgress({
+            status: "uploading",
+            message: "Subiendo archivo...",
+            percentage: percent
+          });
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200 || xhr.status === 204) {
+          resolve();
+        } else {
+          reject(new Error(`Fallo la subida (${xhr.status})`));
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Error de red durante la subida'));
+      });
+
+      xhr.addEventListener('abort', () => {
+        reject(new Error('Subida cancelada'));
+      });
+
+      xhr.open('PUT', url);
+      xhr.setRequestHeader('Content-Type', contentType);
+      xhr.send(file);
+    });
+  }, []);
+
+  const uploadImageToMinio = useCallback(async (url, file, contentType) => {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: file
     });
     if (!res.ok) {
-      setAuthError("No se pudo crear la cuenta");
-      return;
+      throw new Error(`Fallo la subida (${res.status})`);
     }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-    setAuthChecked(false);
-  };
+  }, []);
 
-  const handleLogin = async () => {
-    setAuthError("");
-    const form = new URLSearchParams();
-    form.append("username", email);
-    form.append("password", password);
-    const res = await fetch(`${apiBase}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form
-    });
-    if (!res.ok) {
-      setAuthError("No se pudo iniciar sesion");
-      return;
-    }
-    const data = await res.json();
-    localStorage.setItem("token", data.access_token);
-    setToken(data.access_token);
-    setAuthChecked(false);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    setToken(null);
-  };
-
-  // Handler para file input
-  const handleFileSelect = async (event) => {
+  const handleCoverSelect = useCallback(async (event) => {
     const file = event.target.files?.[0];
-    if (!file || !token) return;
-    await uploadFileToMinio(file);
-    event.target.value = "";
-  };
+    if (!file || !token || !submissionId) return;
+
+    if (coverUpload.previewUrl && coverUpload.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverUpload.previewUrl);
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setCoverUpload({
+      status: "uploading",
+      message: "Subiendo portada...",
+      previewUrl,
+      objectKey: ""
+    });
+
+    try {
+      const res = await fetch(`${apiBase}/submissions/${submissionId}/cover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: file.type || "image/jpeg"
+        })
+      });
+
+      if (!res.ok) {
+        const detail = await readErrorMessage(res, "No se pudo subir la portada");
+        setCoverUpload({
+          status: "error",
+          message: detail,
+          previewUrl,
+          objectKey: ""
+        });
+        return;
+      }
+
+      const data = await res.json();
+      await uploadImageToMinio(data.upload_url, file, file.type || "image/jpeg");
+
+      setCoverUpload({
+        status: "uploaded",
+        message: "Portada lista.",
+        previewUrl,
+        objectKey: data.object_key
+      });
+    } catch (error) {
+      logDev("cover upload error", error);
+      const message =
+        error instanceof Error
+          ? `Error de red: ${error.message}`
+          : "Error de red. Proba de nuevo.";
+      setCoverUpload({
+        status: "error",
+        message,
+        previewUrl,
+        objectKey: ""
+      });
+    } finally {
+      event.target.value = "";
+    }
+  }, [token, submissionId, headers, uploadImageToMinio, coverUpload.previewUrl]);
+
+  const clearCoverUpload = useCallback(() => {
+    if (coverUpload.previewUrl && coverUpload.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverUpload.previewUrl);
+    }
+    setCoverUpload({
+      status: "idle",
+      message: "",
+      previewUrl: "",
+      objectKey: ""
+    });
+  }, [coverUpload.previewUrl]);
 
   // PASO 1: Upload inmediato a MinIO
-  const uploadFileToMinio = async (file) => {
-    setUploadProgress({ status: "uploading", message: "Subiendo..." });
+  const uploadFileToMinio = useCallback(async (file) => {
+    setUploadProgress({ status: "uploading", message: "Preparando...", percentage: 0 });
     logDev("upload start", file.name, file.type);
 
     try {
@@ -131,31 +208,18 @@ function UploadPage() {
 
       if (!createRes.ok) {
         const detail = await readErrorMessage(createRes, "No se pudo preparar la subida");
-        setUploadProgress({ status: "error", message: detail });
+        setUploadProgress({ status: "error", message: detail, percentage: 0 });
         return;
       }
 
       const data = await createRes.json();
       setSubmissionId(data.id);
 
-      // 2. Upload a MinIO
-      const uploadRes = await fetch(data.upload_url, {
-        method: data.upload_method,
-        headers: { "Content-Type": contentType },
-        body: file,
-      });
-
-      if (!uploadRes.ok) {
-        const detail = await readErrorMessage(
-          uploadRes,
-          `Fallo la subida (${uploadRes.status})`
-        );
-        setUploadProgress({ status: "error", message: detail });
-        return;
-      }
+      // 2. Upload a MinIO con tracking de progreso
+      await uploadToMinioWithProgress(data.upload_url, file, contentType);
 
       // 3. Avanzar a paso 2
-      setUploadProgress({ status: "uploaded", message: "Archivo subido" });
+      setUploadProgress({ status: "uploaded", message: "Archivo subido", percentage: 100 });
       setStep(2);
       logDev("upload complete, advancing to step 2");
     } catch (error) {
@@ -164,12 +228,20 @@ function UploadPage() {
         error instanceof Error
           ? `Error de red: ${error.message}`
           : "Error de red. Proba de nuevo.";
-      setUploadProgress({ status: "error", message });
+      setUploadProgress({ status: "error", message, percentage: 0 });
     }
-  };
+  }, [headers, uploadToMinioWithProgress]);
+
+  // Handler para file input
+  const handleFileSelect = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !token) return;
+    await uploadFileToMinio(file);
+    event.target.value = "";
+  }, [token, uploadFileToMinio]);
 
   // PASO 2: Confirmar configuración y procesar
-  const confirmUpload = async () => {
+  const confirmUpload = useCallback(async () => {
     if (!submissionId) return;
 
     try {
@@ -179,14 +251,19 @@ function UploadPage() {
         : null;
 
       // POST /submissions/{id}/uploaded con configuración
+      const payload = {
+        anonymization_mode: formData.anonymizationMode,
+        description: formData.description || null,
+        tags_suggested: tags
+      };
+      if (coverUpload.objectKey) {
+        payload.cover_image_key = coverUpload.objectKey;
+      }
+
       const res = await fetch(`${apiBase}/submissions/${submissionId}/uploaded`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify({
-          anonymization_mode: formData.anonymizationMode,
-          description: formData.description || null,
-          tags_suggested: tags,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -202,10 +279,38 @@ function UploadPage() {
       logDev("confirm error", error);
       alert(`Error: ${error.message}`);
     }
-  };
+  }, [submissionId, formData, headers, coverUpload.objectKey]);
+
+  // Resetear todo
+  const resetUpload = useCallback(() => {
+    setStep(1);
+    setSubmissionId(null);
+    setUploadProgress({ status: "idle", message: "", percentage: 0 });
+    setFormData({
+      anonymizationMode: "SOFT",
+      description: "",
+      tagsSuggested: "",
+    });
+    if (coverUpload.previewUrl && coverUpload.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverUpload.previewUrl);
+    }
+    setCoverUpload({
+      status: "idle",
+      message: "",
+      previewUrl: "",
+      objectKey: ""
+    });
+    // Limpiar grabación si existe
+    if (recordedUrl) {
+      URL.revokeObjectURL(recordedUrl);
+      setRecordedUrl("");
+      setRecordedBlob(null);
+      setRecordingState("idle");
+    }
+  }, [recordedUrl, coverUpload.previewUrl]);
 
   // Cancelar y volver al paso 1
-  const cancelUpload = async () => {
+  const cancelUpload = useCallback(async () => {
     if (submissionId) {
       try {
         await fetch(`${apiBase}/submissions/${submissionId}`, {
@@ -218,30 +323,18 @@ function UploadPage() {
       }
     }
     resetUpload();
-  };
-
-  // Resetear todo
-  const resetUpload = () => {
-    setStep(1);
-    setSubmissionId(null);
-    setUploadProgress({ status: "idle", message: "" });
-    setFormData({
-      anonymizationMode: "SOFT",
-      description: "",
-      tagsSuggested: "",
-    });
-    // Limpiar grabación si existe
-    if (recordedUrl) {
-      URL.revokeObjectURL(recordedUrl);
-      setRecordedUrl("");
-      setRecordedBlob(null);
-      setRecordingState("idle");
-    }
-  };
+  }, [submissionId, headers, resetUpload]);
 
   // === Funciones de grabación (mantener funcionalidad existente) ===
 
-  const startRecording = async () => {
+  const stopStream = useCallback(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
     setRecordingError("");
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setRecordingError("Tu navegador no soporta grabacion de audio");
@@ -288,17 +381,17 @@ function UploadPage() {
       logDev("recording error", error);
       setRecordingError("Permiso de microfono denegado");
     }
-  };
+  }, [stopStream]);
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (!mediaRecorderRef.current) return;
     clearInterval(timerRef.current);
     timerRef.current = null;
     setRecordingState("processing");
     mediaRecorderRef.current.stop();
-  };
+  }, []);
 
-  const clearRecording = () => {
+  const clearRecording = useCallback(() => {
     if (recordedUrl) {
       URL.revokeObjectURL(recordedUrl);
     }
@@ -306,21 +399,14 @@ function UploadPage() {
     setRecordedUrl("");
     setRecordingState("idle");
     setRecordingTime(0);
-  };
+  }, [recordedUrl]);
 
-  const uploadRecording = async () => {
+  const uploadRecording = useCallback(async () => {
     if (!recordedBlob) return;
     const file = blobToFile(recordedBlob);
     await uploadFileToMinio(file);
     // No limpiar la grabación aquí; se limpia en resetUpload si el usuario cancela
-  };
-
-  const stopStream = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-  };
+  }, [recordedBlob, uploadFileToMinio]);
 
   useEffect(() => {
     return () => {
@@ -331,8 +417,11 @@ function UploadPage() {
       if (recordedUrl) {
         URL.revokeObjectURL(recordedUrl);
       }
+      if (coverUpload.previewUrl && coverUpload.previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(coverUpload.previewUrl);
+      }
     };
-  }, [recordedUrl]);
+  }, [recordedUrl, coverUpload.previewUrl]);
 
   // === UI ===
 
@@ -484,7 +573,23 @@ function UploadPage() {
             {/* Mostrar progreso de upload */}
             {uploadProgress.status === "uploading" && (
               <div className="rounded-3xl border border-accent/40 bg-accent/5 p-4" role="status">
-                <p className="text-sm text-ink">Subiendo archivo...</p>
+                <p className="text-sm text-ink mb-3">{uploadProgress.message}</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-sand/50 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-accent h-full transition-all duration-300"
+                      style={{ width: `${uploadProgress.percentage}%` }}
+                      role="progressbar"
+                      aria-valuenow={uploadProgress.percentage}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Progreso de subida"
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-ink min-w-[3rem] text-right">
+                    {uploadProgress.percentage}%
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -532,6 +637,56 @@ function UploadPage() {
                 <p className="text-xs text-muted">
                   Mas fuerte = sonido mas intervenido
                 </p>
+              </div>
+
+              {/* Portada */}
+              <div className="grid gap-3 rounded-3xl border border-sand/70 bg-white p-4">
+                <label className="text-sm font-medium text-ink">
+                  Foto de portada (opcional)
+                </label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div
+                    className="cover-art h-24 w-24 rounded-2xl border border-sand/70"
+                    style={coverUpload.previewUrl ? { backgroundImage: `url(${coverUpload.previewUrl})` } : undefined}
+                    aria-label="Vista previa de portada"
+                  />
+                  <div className="flex flex-1 flex-col gap-2 text-xs text-muted">
+                    <span>
+                      Si no subis una imagen, usamos tu foto de perfil.
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <label className="btn-ghost text-xs cursor-pointer">
+                        Subir foto
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleCoverSelect}
+                          className="hidden"
+                        />
+                      </label>
+                      {coverUpload.previewUrl && (
+                        <button
+                          type="button"
+                          className="btn-ghost text-xs"
+                          onClick={clearCoverUpload}
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    {coverUpload.message && (
+                      <span
+                        className={
+                          coverUpload.status === "error"
+                            ? "text-[#a24538]"
+                            : "text-muted"
+                        }
+                      >
+                        {coverUpload.message}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Descripción */}

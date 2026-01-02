@@ -19,6 +19,15 @@ def get_db():
 def ensure_schema() -> None:
     with engine.begin() as conn:
         conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT")
+        )
+        conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS social_links JSON")
+        )
+        conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_key TEXT")
+        )
+        conn.execute(
             text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS summary TEXT")
         )
         conn.execute(
@@ -34,4 +43,7 @@ def ensure_schema() -> None:
         )
         conn.execute(
             text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS tags_suggested JSON")
+        )
+        conn.execute(
+            text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS cover_image_key TEXT")
         )

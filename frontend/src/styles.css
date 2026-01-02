@@ -4,7 +4,7 @@
 
 :root {
   --ink: 0 0 0;
-  --muted: 76 76 76;
+  --muted: 60 60 60;
   --cream: 254 250 224;
   --sand: 233 237 201;
   --card: 250 237 205;
@@ -127,7 +127,100 @@
         transparent 6px,
         transparent 12px
       );
+    background-position: center;
+    background-repeat: no-repeat;
     background-size: cover;
+  }
+
+  .cover-control {
+    @apply relative overflow-hidden transition;
+  }
+
+  .cover-mask {
+    position: absolute;
+    inset: 0;
+    background: rgba(24, 20, 16, 0.35);
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+
+  .cover-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    transform: translate(-50%, -50%) translateX(-6px);
+    opacity: 0;
+    transition: opacity 200ms ease, transform 200ms ease;
+  }
+
+  .cover-icon-play {
+    width: 0;
+    height: 0;
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-left: 14px solid rgba(255, 255, 255, 0.9);
+  }
+
+  .cover-icon-pause::before,
+  .cover-icon-pause::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: 5px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 4px;
+  }
+
+  .cover-icon-pause::before {
+    left: 0;
+  }
+
+  .cover-icon-pause::after {
+    right: 0;
+  }
+
+  .cover-control:hover .cover-mask,
+  .cover-control:focus-visible .cover-mask {
+    opacity: 1;
+  }
+
+  .cover-control:hover .cover-icon,
+  .cover-control:focus-visible .cover-icon {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateX(0);
+  }
+
+  .cover-control.is-playing .cover-icon-play {
+    opacity: 0;
+  }
+
+  .cover-control:not(.is-playing) .cover-icon-pause {
+    opacity: 0;
+  }
+
+  .applause-btn {
+    @apply inline-flex items-center gap-2 rounded-full border border-sand/70 bg-white px-3 py-1 text-xs font-medium text-ink transition;
+  }
+
+  .applause-btn:hover:not(:disabled) {
+    @apply bg-sand/60;
+  }
+
+  .applause-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .applause-btn--active {
+    @apply border-accent bg-accent/20;
+  }
+
+  .applause-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
   .radio-track {
@@ -147,8 +240,38 @@
   .animate-delay-300 {
     animation-delay: 300ms;
   }
+
+  /* Screen reader only - oculto visualmente pero accesible para lectores de pantalla */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
 }
 
 ::selection {
   background: rgba(212, 163, 115, 0.35);
+}
+
+/* Focus visible mejorado - outline consistente para accesibilidad */
+*:focus-visible {
+  outline: 3px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+/* Respetar preferencia de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
