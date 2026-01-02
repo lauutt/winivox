@@ -43,7 +43,7 @@ services:
   api:
     build: ./backend
     env_file:
-      - ./infra/dev.env
+      - ./infra/dev.local.env
     environment:
       MINIO_PUBLIC_ENDPOINT: http://localhost:9000
     depends_on:
@@ -58,7 +58,7 @@ services:
   worker:
     build: ./worker
     env_file:
-      - ./infra/dev.env
+      - ./infra/dev.local.env
     depends_on:
       - postgres
       - redis

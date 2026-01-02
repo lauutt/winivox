@@ -4,8 +4,8 @@ This doc is the reference for local dev and build.
 
 ## Quick start
 
-1) Copy env: `cp infra/dev.env infra/dev.local.env`
-2) Fill `OPENAI_API_KEY` if needed.
+1) Copy env: `cp infra/dev.env.example infra/dev.local.env`
+2) Fill `OPENAI_API_KEY` in `infra/dev.local.env` if needed.
 3) Run: `docker compose build`
 4) Run: `docker compose up`
 
@@ -31,6 +31,7 @@ Frontend routes:
 
 ## Notes
 
+- `infra/dev.local.env` es local y no se commitea (ahi van las claves).
 - Audio upload goes direct to MinIO via presigned URLs.
 - Worker processes audio and publishes anonymized copies.
 - Transcripcion y moderacion real con OpenAI.

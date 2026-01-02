@@ -7,6 +7,7 @@ Nota: este archivo es la fuente de verdad. Actualizalo en cada cambio real.
 ## Current snapshot
 
 - E2E demo funciona con Docker Compose (api, worker, frontend, postgres, redis, minio).
+- Env local vive en `infra/dev.local.env` (ignorado) y hay template en `infra/dev.env.example`; compose lee el local.
 - Upload directo a storage privado con presigned URLs; audio nunca pasa por FastAPI.
 - Worker ejecuta pipeline asincrono: normalize, transcribe (audio normalizado y comprimido para transcripcion), moderate, title+summary+tags+viral_analysis, anonymize, publish.
 - OpenAI integrado para transcripcion, moderacion y title/summary/tags/viral_analysis (fallback si falta `OPENAI_API_KEY`).
