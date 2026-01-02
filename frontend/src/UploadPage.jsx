@@ -4,13 +4,27 @@ import Layout from "./components/Layout.jsx";
 import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
 
 function UploadPage() {
+  // Estados de autenticación
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
-  const [uploadState, setUploadState] = useState({ status: "idle", message: "" });
   const [authChecked, setAuthChecked] = useState(false);
-  const [anonymizationMode, setAnonymizationMode] = useState("SOFT");
+
+  // Estados del nuevo flujo de upload (2 pasos)
+  const [step, setStep] = useState(1); // 1: seleccionar, 2: configurar
+  const [submissionId, setSubmissionId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState({
+    status: "idle", // idle | uploading | uploaded | error
+    message: "",
+  });
+  const [formData, setFormData] = useState({
+    anonymizationMode: "SOFT",
+    description: "",
+    tagsSuggested: "",
+  });
+
+  // Estados de grabación (mantener funcionalidad existente)
   const [recordingState, setRecordingState] = useState("idle");
   const [recordingError, setRecordingError] = useState("");
   const [recordingTime, setRecordingTime] = useState(0);
@@ -24,6 +38,7 @@ function UploadPage() {
 
   const headers = useMemo(() => authHeaders(token), [token]);
 
+  // Verificar autenticación
   useEffect(() => {
     if (!token) {
       setAuthChecked(true);
@@ -45,6 +60,7 @@ function UploadPage() {
       });
   }, [token, headers]);
 
+  // Handlers de autenticación
   const handleRegister = async () => {
     setAuthError("");
     const res = await fetch(`${apiBase}/auth/register`, {
@@ -53,7 +69,7 @@ function UploadPage() {
       body: JSON.stringify({ email, password })
     });
     if (!res.ok) {
-      setAuthError("Registration failed");
+      setAuthError("No se pudo crear la cuenta");
       return;
     }
     const data = await res.json();
@@ -73,7 +89,7 @@ function UploadPage() {
       body: form
     });
     if (!res.ok) {
-      setAuthError("Login failed");
+      setAuthError("No se pudo iniciar sesion");
       return;
     }
     const data = await res.json();
@@ -87,85 +103,148 @@ function UploadPage() {
     setToken(null);
   };
 
-  const handleUpload = async (event) => {
+  // Handler para file input
+  const handleFileSelect = async (event) => {
     const file = event.target.files?.[0];
     if (!file || !token) return;
-    await uploadFile(file);
+    await uploadFileToMinio(file);
     event.target.value = "";
   };
 
-  const uploadFile = async (file) => {
-    setUploadState({ status: "creating", message: "Creating submission" });
+  // PASO 1: Upload inmediato a MinIO
+  const uploadFileToMinio = async (file) => {
+    setUploadProgress({ status: "uploading", message: "Subiendo..." });
     logDev("upload start", file.name, file.type);
 
     try {
       const contentType = guessContentType(file);
-      const res = await fetch(`${apiBase}/submissions`, {
+
+      // 1. Crear submission (sin anonymization_mode)
+      const createRes = await fetch(`${apiBase}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({
           filename: file.name,
           content_type: contentType,
-          anonymization_mode: anonymizationMode
-        })
+        }),
       });
 
-      if (!res.ok) {
-        const detail = await readErrorMessage(res, "Submission failed");
-        setUploadState({ status: "error", message: detail });
-        return false;
+      if (!createRes.ok) {
+        const detail = await readErrorMessage(createRes, "No se pudo preparar la subida");
+        setUploadProgress({ status: "error", message: detail });
+        return;
       }
 
-      const data = await res.json();
-      setUploadState({ status: "uploading", message: "Uploading" });
+      const data = await createRes.json();
+      setSubmissionId(data.id);
 
+      // 2. Upload a MinIO
       const uploadRes = await fetch(data.upload_url, {
         method: data.upload_method,
         headers: { "Content-Type": contentType },
-        body: file
+        body: file,
       });
 
       if (!uploadRes.ok) {
         const detail = await readErrorMessage(
           uploadRes,
-          `Upload failed (${uploadRes.status})`
+          `Fallo la subida (${uploadRes.status})`
         );
-        setUploadState({ status: "error", message: detail });
-        return false;
+        setUploadProgress({ status: "error", message: detail });
+        return;
       }
 
-      setUploadState({ status: "finalizing", message: "Finalizing" });
-      const markRes = await fetch(`${apiBase}/submissions/${data.id}/uploaded`, {
-        method: "POST",
-        headers
-      });
-
-      if (!markRes.ok) {
-        const detail = await readErrorMessage(markRes, "Finalize failed");
-        setUploadState({ status: "error", message: detail });
-        return false;
-      }
-
-      setUploadState({
-        status: "queued",
-        message: "Queued for processing. Track it in your Library."
-      });
-      return true;
+      // 3. Avanzar a paso 2
+      setUploadProgress({ status: "uploaded", message: "Archivo subido" });
+      setStep(2);
+      logDev("upload complete, advancing to step 2");
     } catch (error) {
       logDev("upload error", error);
       const message =
         error instanceof Error
-          ? `Network error: ${error.message}`
-          : "Network error. Try again.";
-      setUploadState({ status: "error", message });
-      return false;
+          ? `Error de red: ${error.message}`
+          : "Error de red. Proba de nuevo.";
+      setUploadProgress({ status: "error", message });
     }
   };
+
+  // PASO 2: Confirmar configuración y procesar
+  const confirmUpload = async () => {
+    if (!submissionId) return;
+
+    try {
+      // Parsear tags (separados por coma)
+      const tags = formData.tagsSuggested
+        ? formData.tagsSuggested.split(",").map((t) => t.trim()).filter(Boolean)
+        : null;
+
+      // POST /submissions/{id}/uploaded con configuración
+      const res = await fetch(`${apiBase}/submissions/${submissionId}/uploaded`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({
+          anonymization_mode: formData.anonymizationMode,
+          description: formData.description || null,
+          tags_suggested: tags,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await readErrorMessage(res, "No se pudo confirmar");
+        alert(`Error: ${detail}`);
+        return;
+      }
+
+      logDev("upload confirmed, redirecting to library");
+      // Redirect a library
+      window.location.href = "/library/";
+    } catch (error) {
+      logDev("confirm error", error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  // Cancelar y volver al paso 1
+  const cancelUpload = async () => {
+    if (submissionId) {
+      try {
+        await fetch(`${apiBase}/submissions/${submissionId}`, {
+          method: "DELETE",
+          headers,
+        });
+        logDev("submission cancelled", submissionId);
+      } catch (error) {
+        logDev("cancel error", error);
+      }
+    }
+    resetUpload();
+  };
+
+  // Resetear todo
+  const resetUpload = () => {
+    setStep(1);
+    setSubmissionId(null);
+    setUploadProgress({ status: "idle", message: "" });
+    setFormData({
+      anonymizationMode: "SOFT",
+      description: "",
+      tagsSuggested: "",
+    });
+    // Limpiar grabación si existe
+    if (recordedUrl) {
+      URL.revokeObjectURL(recordedUrl);
+      setRecordedUrl("");
+      setRecordedBlob(null);
+      setRecordingState("idle");
+    }
+  };
+
+  // === Funciones de grabación (mantener funcionalidad existente) ===
 
   const startRecording = async () => {
     setRecordingError("");
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setRecordingError("Browser does not support audio capture");
+      setRecordingError("Tu navegador no soporta grabacion de audio");
       return;
     }
 
@@ -207,7 +286,7 @@ function UploadPage() {
       }, 1000);
     } catch (error) {
       logDev("recording error", error);
-      setRecordingError("Microphone permission denied");
+      setRecordingError("Permiso de microfono denegado");
     }
   };
 
@@ -232,10 +311,8 @@ function UploadPage() {
   const uploadRecording = async () => {
     if (!recordedBlob) return;
     const file = blobToFile(recordedBlob);
-    const ok = await uploadFile(file);
-    if (ok) {
-      clearRecording();
-    }
+    await uploadFileToMinio(file);
+    // No limpiar la grabación aquí; se limpia en resetUpload si el usuario cancela
   };
 
   const stopStream = () => {
@@ -257,20 +334,25 @@ function UploadPage() {
     };
   }, [recordedUrl]);
 
+  // === UI ===
+
   const rightRail = (
     <>
-      <div className="rail-card">
-        <h4>Upload steps</h4>
-        <ol className="rail-list">
-          <li>Direct upload to private storage</li>
-          <li>Async processing pipeline</li>
-          <li>LLM tags + summary</li>
-          <li>Public anonymized copy</li>
+      <div className="surface-glass">
+        <h4 className="text-base">Guia rapida</h4>
+        <ol className="mt-3 grid gap-2 pl-4 text-sm text-muted">
+          <li>Graba o subi tu audio</li>
+          <li>Agrega detalles opcionales</li>
+          <li>Se suma a la radio al terminar</li>
         </ol>
       </div>
-      <div className="rail-card">
-        <h4>Next stop</h4>
-        <p>Follow progress in your Library once the upload is queued.</p>
+      <div className="surface-glass">
+        <h4 className="text-base">Ideas rapidas</h4>
+        <ul className="mt-3 grid gap-2 text-sm text-muted">
+          <li>Confesiones y dilemas</li>
+          <li>Mensajes cortos y aliento</li>
+          <li>Anecdotas y rarezas cotidianas</li>
+        </ul>
       </div>
     </>
   );
@@ -280,10 +362,10 @@ function UploadPage() {
       current="upload"
       token={token}
       onLogout={handleLogout}
-      heroTitle="Leave a quiet story"
-      heroCopy="Drop a file or record a voice note. We shape it gently and keep the original private."
-      heroBadgeLabel="Privacy"
-      heroBadgeValue="Private originals"
+      heroTitle="Sumalo a la radio"
+      heroCopy="Graba o subi un audio. Confesiones, dilemas, anecdotas o mensajes cortos: todo suma a la radio de la comunidad."
+      heroBadgeLabel="Destino"
+      heroBadgeValue="Radio de la comunidad"
       rightRail={rightRail}
     >
       {!token && authChecked && (
@@ -299,109 +381,225 @@ function UploadPage() {
       )}
 
       {!token && authChecked && (
-        <section className="upload locked">
-          <h3>Login required</h3>
-          <p>Access your private uploads by signing in.</p>
-          <div className="locked-actions">
-            <a href="/">Back to feed</a>
+        <section className="surface border-dashed border-sand/70 bg-white">
+          <h3 className="text-lg">Necesitas iniciar sesion</h3>
+          <p className="mt-2 text-sm text-muted">
+            Para ver tus audios privados, inicia sesion.
+          </p>
+          <div className="mt-4">
+            <a href="/" className="btn-ink">
+              Volver al inicio
+            </a>
           </div>
         </section>
       )}
 
-      {token && (
-        <section className="upload">
-          <h3>Upload a story</h3>
-          <p>
-            Drag a file or record from your microphone. Track progress in your
-            Library once it is queued.
-          </p>
-          <label className="upload-drop">
-            <input
-              type="file"
-              accept="audio/*,.opus,.ogg,.webm"
-              onChange={handleUpload}
-            />
-            <span>Choose an audio file</span>
-          </label>
-          <div className="upload-hint">Supports .opus, .ogg, .webm, .wav, .mp3</div>
-          <div className="upload-options">
-            <label>
-              Voice anonymization
-              <select
-                value={anonymizationMode}
-                onChange={(event) => setAnonymizationMode(event.target.value)}
-              >
-                <option value="OFF">Off</option>
-                <option value="SOFT">Soft</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="STRONG">Strong</option>
-              </select>
-            </label>
-            <p className="muted">
-              Higher levels shift the voice further while keeping the story
-              clear.
-            </p>
-          </div>
-
-          <div className="recording">
-            <div className="recording-header">
-              <h4>Record with microphone</h4>
-              <div className="recording-badge">
-                <span>{recordingState}</span>
-                <span>{formatTime(recordingTime)}</span>
-              </div>
+      {token && step === 1 && (
+        <section className="surface">
+          <div className="flex flex-col gap-6">
+            <div>
+              <span className="text-xs uppercase tracking-[0.3em] text-muted">
+                Paso 1
+              </span>
+              <h3 className="mt-2 text-lg">Subir o grabar audio</h3>
+              <p className="mt-2 text-sm text-muted">
+                Elegi un archivo o graba directo desde el microfono. El archivo se sube
+                automaticamente y despues completas los detalles.
+              </p>
             </div>
-            <div className="recording-controls">
-              <button
-                type="button"
-                className="ghost"
-                onClick={startRecording}
-                disabled={recordingState === "recording"}
-              >
-                Start
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                onClick={stopRecording}
-                disabled={recordingState !== "recording"}
-              >
-                Stop
-              </button>
-              <button
-                type="button"
-                onClick={uploadRecording}
-                disabled={!recordedBlob}
-              >
-                Upload recording
-              </button>
-              {recordedBlob && (
-                <button type="button" className="ghost" onClick={clearRecording}>
-                  Clear
+
+            {/* Área de carga de archivo */}
+            <label className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-sand/70 bg-white p-12 text-sm text-muted transition hover:border-accent/60 hover:bg-sand/60">
+              <input
+                type="file"
+                accept="audio/*,.opus,.ogg,.webm"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <span className="text-lg font-medium text-ink">
+                Arrastra un archivo aca o hace click para elegir
+              </span>
+              <span className="text-xs text-muted">
+                Formatos: .opus, .ogg, .webm, .wav, .mp3
+              </span>
+            </label>
+
+            {/* Panel de grabación */}
+            <div className="rounded-3xl border border-sand/60 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-base">O grabar con microfono</h4>
+                <div className="flex items-center gap-3 text-xs text-muted">
+                  <span>{formatRecordingState(recordingState)}</span>
+                  <span className="radio-track">{formatTime(recordingTime)}</span>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={startRecording}
+                  disabled={recordingState === "recording"}
+                >
+                  Empezar
                 </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={stopRecording}
+                  disabled={recordingState !== "recording"}
+                >
+                  Detener
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={uploadRecording}
+                  disabled={!recordedBlob}
+                >
+                  Subir grabacion
+                </button>
+                {recordedBlob && (
+                  <button type="button" className="btn-ghost" onClick={clearRecording}>
+                    Borrar
+                  </button>
+                )}
+              </div>
+              {recordingError && (
+                <p className="mt-3 text-sm text-[#a24538]" role="alert">
+                  {recordingError}
+                </p>
+              )}
+              {recordedUrl && (
+                <audio className="mt-3 w-full" controls src={recordedUrl} />
               )}
             </div>
-            {recordingError && <p className="error">{recordingError}</p>}
-            {recordedUrl && (
-              <audio className="recording-preview" controls src={recordedUrl} />
+
+            {/* Mostrar errores de upload */}
+            {uploadProgress.status === "error" && (
+              <div className="rounded-3xl border border-[#a24538]/40 bg-[#a24538]/5 p-4" role="alert">
+                <p className="text-sm text-[#a24538]">{uploadProgress.message}</p>
+              </div>
+            )}
+
+            {/* Mostrar progreso de upload */}
+            {uploadProgress.status === "uploading" && (
+              <div className="rounded-3xl border border-accent/40 bg-accent/5 p-4" role="status">
+                <p className="text-sm text-ink">Subiendo archivo...</p>
+              </div>
             )}
           </div>
+        </section>
+      )}
 
-          <div className="upload-status">
-            <strong>Status:</strong> {uploadState.status}
-            <span>{uploadState.message}</span>
-          </div>
-          <div className="upload-cta">
-            <a href="/library/">Go to your library</a>
-            <span className="muted">
-              Follow processing in real time once the upload is queued.
-            </span>
+      {token && step === 2 && (
+        <section className="surface">
+          <div className="flex flex-col gap-6">
+            <div>
+              <span className="text-xs uppercase tracking-[0.3em] text-muted">
+                Paso 2
+              </span>
+              <h3 className="mt-2 text-lg">Detalles y confirmacion</h3>
+              <p className="mt-2 text-sm text-muted">
+                El archivo ya esta subido. Ahora agrega detalles opcionales antes de sumar a la
+                radio.
+              </p>
+            </div>
+
+            {uploadProgress.status === "uploaded" && (
+              <div className="rounded-3xl border border-green-500/40 bg-green-500/5 p-4">
+                <p className="text-sm text-green-700">✓ Archivo subido correctamente</p>
+              </div>
+            )}
+
+            <form onSubmit={(e) => { e.preventDefault(); confirmUpload(); }} className="flex flex-col gap-6">
+              {/* Ajuste de audio */}
+              <div className="grid gap-3 rounded-3xl border border-sand/70 bg-white p-4">
+                <label className="text-sm font-medium text-ink">
+                  Estilo de audio
+                </label>
+                <select
+                  value={formData.anonymizationMode}
+                  onChange={(e) =>
+                    setFormData({ ...formData, anonymizationMode: e.target.value })
+                  }
+                  className="rounded-2xl border border-sand/70 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="OFF">Natural</option>
+                  <option value="SOFT">Suave (recomendado)</option>
+                  <option value="MEDIUM">Intermedio</option>
+                  <option value="STRONG">Fuerte</option>
+                </select>
+                <p className="text-xs text-muted">
+                  Mas fuerte = sonido mas intervenido
+                </p>
+              </div>
+
+              {/* Descripción */}
+              <div className="grid gap-3 rounded-3xl border border-sand/70 bg-white p-4">
+                <label className="text-sm font-medium text-ink">
+                  Descripcion o contexto (opcional)
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  placeholder="Ej: dilema laboral, confesiones, mensaje corto"
+                  rows={4}
+                  className="rounded-2xl border border-sand/70 bg-white px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-muted">
+                  Esto ayuda a generar un mejor resumen automatico
+                </p>
+              </div>
+
+              {/* Tags sugeridos */}
+              <div className="grid gap-3 rounded-3xl border border-sand/70 bg-white p-4">
+                <label className="text-sm font-medium text-ink">
+                  Etiquetas sugeridas (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={formData.tagsSuggested}
+                  onChange={(e) =>
+                    setFormData({ ...formData, tagsSuggested: e.target.value })
+                  }
+                  placeholder="confesiones, barrio, rarezas (separados por coma)"
+                  className="rounded-2xl border border-sand/70 bg-white px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-muted">
+                  Sugeri categorias que te parezcan apropiadas
+                </p>
+              </div>
+
+              {/* Botones */}
+              <div className="flex flex-wrap gap-3">
+                <button type="submit" className="btn-primary">
+                  Confirmar y sumar
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelUpload}
+                  className="btn-ghost"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+
+            <div className="rounded-3xl border border-sand/70 bg-white p-4 text-xs text-muted">
+              <p>
+                Al confirmar, tu audio se procesa en segundo plano y se suma a la radio cuando termina.
+              </p>
+            </div>
           </div>
         </section>
       )}
     </Layout>
   );
 }
+
+// === Helper functions (mantener todas las existentes) ===
 
 async function readErrorMessage(response, fallback) {
   try {
@@ -452,6 +650,19 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function formatRecordingState(state) {
+  switch (state) {
+    case "recording":
+      return "Grabando";
+    case "processing":
+      return "Procesando";
+    case "ready":
+      return "Lista para subir";
+    default:
+      return "Listo para grabar";
+  }
 }
 
 export default UploadPage;

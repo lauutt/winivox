@@ -4,13 +4,13 @@ import Layout from "./components/Layout.jsx";
 import { apiBase, authHeaders, fetchJson, logDev } from "./lib/api.js";
 
 const STEP_LABELS = {
-  0: "Queued",
-  1: "Normalized",
-  2: "Transcribed",
-  3: "Moderated",
-  4: "Tagged",
-  5: "Anonymized",
-  6: "Published"
+  0: "En cola",
+  1: "Normalizado",
+  2: "Transcripto",
+  3: "Moderado",
+  4: "Etiquetado",
+  5: "Audio ajustado",
+  6: "Publicado"
 };
 
 const TERMINAL_STATUSES = new Set(["APPROVED", "REJECTED", "QUARANTINED"]);
@@ -58,7 +58,7 @@ function LibraryPage() {
     } catch (error) {
       setSubmissions([]);
       setHasPending(false);
-      setSubmissionsError("Unable to load submissions. Check connection.");
+      setSubmissionsError("No se pudieron cargar tus audios.");
       throw error;
     } finally {
       setSubmissionsLoading(false);
@@ -84,7 +84,7 @@ function LibraryPage() {
       });
       scheduleRefresh();
     } catch {
-      setSubmissionsError("Reprocess failed. Try again.");
+      setSubmissionsError("No se pudo reprocesar. Proba de nuevo.");
     }
   };
 
@@ -107,7 +107,7 @@ function LibraryPage() {
         setEventsById((prev) => ({ ...prev, [submissionId]: [] }));
         setEventsError((prev) => ({
           ...prev,
-          [submissionId]: "Unable to load events."
+          [submissionId]: "No se pudieron cargar los eventos."
         }));
       } finally {
         setEventsLoading((prev) => ({ ...prev, [submissionId]: false }));
@@ -135,7 +135,7 @@ function LibraryPage() {
           return;
         }
         setSubmissions([]);
-        setSubmissionsError("Unable to load submissions.");
+        setSubmissionsError("No se pudieron cargar tus audios.");
       });
   }, [token, headers]);
 
@@ -144,14 +144,14 @@ function LibraryPage() {
     try {
       const res = await fetch(`${apiBase}/health`);
       if (!res.ok) {
-        throw new Error("Health unavailable");
+        throw new Error("health unavailable");
       }
       const data = await res.json();
       setHealthStatus({ loading: false, error: "", data });
     } catch (error) {
       setHealthStatus({
         loading: false,
-        error: "System status unavailable",
+        error: "Estado del sistema no disponible",
         data: null
       });
     }
@@ -217,7 +217,7 @@ function LibraryPage() {
 
     source.onerror = () => {
       setLiveState("error");
-      setStreamError("Live stream dropped. Falling back to polling.");
+      setStreamError("Se corto la conexion en vivo. Pasamos a refresco automatico.");
       setPollingFallback(true);
     };
 
@@ -247,7 +247,7 @@ function LibraryPage() {
       body: JSON.stringify({ email, password })
     });
     if (!res.ok) {
-      setAuthError("Registration failed");
+      setAuthError("No se pudo crear la cuenta");
       return;
     }
     const data = await res.json();
@@ -267,7 +267,7 @@ function LibraryPage() {
       body: form
     });
     if (!res.ok) {
-      setAuthError("Login failed");
+      setAuthError("No se pudo iniciar sesion");
       return;
     }
     const data = await res.json();
@@ -283,69 +283,83 @@ function LibraryPage() {
 
   const rightRail = (
     <>
-      <div className="rail-card">
-        <h4>Tape path</h4>
-        <ol className="rail-list">
-          <li>Normalize + transcribe</li>
-          <li>Moderate + tag</li>
-          <li>Anonymize + publish</li>
+      <div className="surface-glass">
+        <h4 className="text-base">Tu audio, paso a paso</h4>
+        <ol className="mt-3 grid gap-2 pl-4 text-sm text-muted">
+          <li>Subido</li>
+          <li>En proceso</li>
+          <li>En la radio</li>
         </ol>
       </div>
-      <div className="rail-card">
-        <h4>Live updates</h4>
-        <p>Realtime stream with polling fallback when the connection drops.</p>
-        {streamError && <p className="error">{streamError}</p>}
+      <div className="surface-glass">
+        <h4 className="text-base">Actualizaciones</h4>
+        <p className="mt-2 text-sm text-muted">
+          Vas a ver cambios en vivo mientras algo se procesa.
+        </p>
+        {streamError && (
+          <p className="mt-2 text-sm text-[#a24538]" role="alert">
+            {streamError}
+          </p>
+        )}
       </div>
-      <div className="rail-card">
-        <h4>System status</h4>
-        {healthStatus.loading && <span className="muted">Checking...</span>}
+      <div className="surface-glass">
+        <div className="flex items-center justify-between">
+          <h4 className="text-base">Estado del sistema</h4>
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={fetchHealth}
+            disabled={healthStatus.loading}
+            aria-label="Actualizar estado del sistema"
+            title="Actualizar estado del sistema"
+          >
+            ↻
+          </button>
+        </div>
+        {healthStatus.loading && (
+          <span className="mt-3 block text-xs text-muted">Chequeando...</span>
+        )}
         {!healthStatus.loading && healthStatus.error && (
-          <span className="error">{healthStatus.error}</span>
+          <span className="mt-3 block text-sm text-[#a24538]">
+            {healthStatus.error}
+          </span>
         )}
         {!healthStatus.loading && healthStatus.data && (
-          <div className="health-list">
-            <div className="health-item">
+          <div className="mt-3 grid gap-2 text-xs text-muted">
+            <div className="flex items-center gap-2">
               <span
-                className={`health-dot ${
-                  healthStatus.data.db_ready ? "ok" : "down"
+                className={`h-2 w-2 rounded-full ${
+                  healthStatus.data.db_ready ? "bg-emerald-600" : "bg-[#a24538]"
                 }`}
               />
-              <span>Database</span>
+              <span>Base de datos</span>
             </div>
-            <div className="health-item">
+            <div className="flex items-center gap-2">
               <span
-                className={`health-dot ${
-                  healthStatus.data.storage_ready ? "ok" : "down"
+                className={`h-2 w-2 rounded-full ${
+                  healthStatus.data.storage_ready ? "bg-emerald-600" : "bg-[#a24538]"
                 }`}
               />
-              <span>Storage</span>
+              <span>Almacenamiento</span>
             </div>
-            <div className="health-item">
+            <div className="flex items-center gap-2">
               <span
-                className={`health-dot ${
-                  healthStatus.data.queue_ready ? "ok" : "down"
+                className={`h-2 w-2 rounded-full ${
+                  healthStatus.data.queue_ready ? "bg-emerald-600" : "bg-[#a24538]"
                 }`}
               />
-              <span>Queue</span>
+              <span>Cola</span>
             </div>
-            <div className="health-item">
+            <div className="flex items-center gap-2">
               <span
-                className={`health-dot ${
-                  healthStatus.data.llm_ready ? "ok" : "warn"
+                className={`h-2 w-2 rounded-full ${
+                  healthStatus.data.llm_ready ? "bg-emerald-600" : "bg-amber-500"
                 }`}
               />
               <span>LLM</span>
             </div>
           </div>
         )}
-        <button
-          type="button"
-          className="ghost"
-          onClick={fetchHealth}
-          disabled={healthStatus.loading}
-        >
-          Refresh status
-        </button>
       </div>
     </>
   );
@@ -364,22 +378,30 @@ function LibraryPage() {
     );
   }, [submissions, statusFilter]);
   const filters = [
-    { id: "all", label: "All" },
-    { id: "processing", label: "Processing" },
-    { id: "approved", label: "Approved" },
-    { id: "rejected", label: "Rejected" },
-    { id: "quarantined", label: "Quarantined" }
+    { id: "all", label: "Todo" },
+    { id: "processing", label: "En proceso" },
+    { id: "approved", label: "Publicado" },
+    { id: "rejected", label: "Rechazado" },
+    { id: "quarantined", label: "En revision" }
   ];
+  const liveDotClass =
+    liveState === "live"
+      ? "bg-emerald-600 animate-pulse-soft"
+      : liveState === "connecting"
+        ? "bg-amber-500 animate-pulse"
+        : pollingFallback
+          ? "bg-amber-500"
+          : "bg-sand/80";
 
   return (
     <Layout
       current="library"
       token={token}
       onLogout={handleLogout}
-      heroTitle="Your library, softly alive"
-      heroCopy="Watch the tape travel through the pipeline. When it is ready, it joins the stream."
-      heroBadgeLabel="Signal"
-      heroBadgeValue="Comfort listening"
+      heroTitle="Tu biblioteca en vivo"
+      heroCopy="Aca vas a ver el estado de tus audios hasta que se suman a la radio."
+      heroBadgeLabel="Estado"
+      heroBadgeValue="En vivo"
       rightRail={rightRail}
     >
       {!token && authChecked && (
@@ -395,59 +417,64 @@ function LibraryPage() {
       )}
 
       {!token && authChecked && (
-        <section className="library locked">
-          <h3>Login required</h3>
-          <p>Sign in to see your recordings and their status.</p>
-          <div className="locked-actions">
-            <a href="/">Back to feed</a>
+        <section className="surface border-dashed border-sand/70 bg-white">
+          <h3 className="text-lg">Necesitas iniciar sesion</h3>
+          <p className="mt-2 text-sm text-muted">
+            Inicia sesion para ver tus audios y su estado.
+          </p>
+          <div className="mt-4">
+            <a href="/" className="btn-ink">
+              Volver al inicio
+            </a>
           </div>
         </section>
       )}
 
       {token && (
-        <section className="library">
-          <div className="library-header">
+        <section className="surface">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h3>My library</h3>
-              <p className="library-copy">
-                Live view of your uploads. We update this list as the pipeline
-                moves.
+              <h3 className="text-lg">Mi biblioteca</h3>
+              <p className="mt-1 text-sm text-muted">
+                Vista en vivo de tus audios. Se actualiza sola mientras avanza.
               </p>
             </div>
-            <div className="library-actions">
-              <button type="button" onClick={refreshSubmissions}>
-                Refresh
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={refreshSubmissions}
+                aria-label="Actualizar biblioteca"
+                title="Actualizar biblioteca"
+              >
+                ↻
               </button>
-              <div className="live-indicator">
-                <span
-                  className={`live-dot ${
-                    liveState === "live"
-                      ? "on"
-                      : liveState === "connecting"
-                        ? "connecting"
-                        : "paused"
-                  }`}
-                />
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <span className={`h-2 w-2 rounded-full ${liveDotClass}`} />
                 <span>
                   {liveState === "live"
                     ? hasPending
-                      ? "Live"
-                      : "Standby"
+                      ? "En vivo"
+                      : "En espera"
                     : liveState === "connecting"
-                      ? "Connecting"
+                      ? "Conectando"
                       : pollingFallback
-                        ? "Polling"
-                        : "Paused"}
+                        ? "Refrescando"
+                        : "En pausa"}
                 </span>
               </div>
             </div>
           </div>
-          <div className="library-filters">
+          <div className="mt-4 flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
                 key={filter.id}
                 type="button"
-                className={statusFilter === filter.id ? "active" : ""}
+                className={`rounded-full border border-sand/70 px-3 py-1 text-xs font-medium transition ${
+                  statusFilter === filter.id
+                    ? "bg-accent/80 text-ink"
+                    : "bg-white text-muted hover:bg-sand/60"
+                }`}
                 onClick={() => setStatusFilter(filter.id)}
               >
                 {filter.label}
@@ -455,108 +482,117 @@ function LibraryPage() {
             ))}
           </div>
           {lastUpdated && (
-            <div className="library-updated">
-              Updated {lastUpdated.toLocaleTimeString()}
+            <div className="mt-2 text-xs text-muted">
+              Actualizado {lastUpdated.toLocaleTimeString()}
             </div>
           )}
           {lastEventAt && (
-            <div className="library-updated">
-              Last event {lastEventAt.toLocaleTimeString()}
+            <div className="mt-1 text-xs text-muted">
+              Ultimo evento {lastEventAt.toLocaleTimeString()}
             </div>
           )}
           {nextUp && (
-            <div className="library-next">
-              Up next:{" "}
-              <strong>
-                {truncateText(
-                  nextUp.summary || nextUp.transcript_preview || "Untitled",
-                  48
-                )}
+            <div className="mt-3 text-xs text-muted">
+              Siguiente:{" "}
+              <strong className="text-ink">
+                {truncateText(getSubmissionTitle(nextUp), 48)}
               </strong>{" "}
-              · {STEP_LABELS[nextUp.processing_step] || "Queued"}
+              · {STEP_LABELS[nextUp.processing_step] || "En cola"}
             </div>
           )}
 
-          <div className="submissions">
-            <ul>
+          <div className="mt-4">
+            <ul className="grid gap-3">
               {filteredSubmissions.map((item) => {
                 const isProcessing = !TERMINAL_STATUSES.has(item.status);
                 const progress = getProgress(item.processing_step);
+                const hasHighPotential = item.high_potential === true;
                 return (
                   <li
                     key={item.id}
-                    className={`submission-item ${
-                      isProcessing ? "is-processing" : ""
+                    className={`flex flex-col gap-3 rounded-3xl border border-sand/70 bg-white p-4 shadow-lift ${
+                      isProcessing ? "animate-breathe" : ""
                     }`}
                   >
-                    <div className="submission-main">
+                    <div className="flex flex-wrap items-center gap-3">
                       <span
-                        className={`status-dot ${item.status.toLowerCase()}`}
+                        className={`h-2 w-2 rounded-full ${getStatusDotClass(
+                          item.status
+                        )}`}
                         aria-hidden="true"
                       />
-                      <div className="submission-title">
-                        <strong>
-                          {truncateText(
-                            item.summary || item.transcript_preview || "Untitled",
-                            72
-                          )}
+                      <div className="flex min-w-[200px] flex-1 flex-col gap-1">
+                        <strong className="text-sm">
+                          {truncateText(getSubmissionTitle(item), 72)}
                         </strong>
-                        <span className="submission-status">
+                        <span className="text-xs text-muted">
                           {describeSubmission(item)}
                         </span>
+                        {hasHighPotential && (
+                          <span className="text-xs text-ink">
+                            Este audio tiene un gran potencial.
+                          </span>
+                        )}
                       </div>
                       <button
                         type="button"
-                        className="ghost"
+                        className="btn-ghost text-xs"
                         onClick={() => toggleTimeline(item.id)}
                       >
-                        {timelineOpen[item.id] ? "Hide details" : "Details"}
+                        {timelineOpen[item.id] ? "Ocultar detalle" : "Ver detalle"}
                       </button>
                     </div>
                     {isProcessing && (
-                      <div className="processing-row">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                         <span>
-                          Current: {STEP_LABELS[item.processing_step] || "Queued"}
+                          Paso: {STEP_LABELS[item.processing_step] || "En cola"}
                         </span>
-                        <div className="progress-track">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-sand/60">
                           <div
-                            className="progress-bar"
+                            className="h-full rounded-full bg-accent/80"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
                       </div>
                     )}
-                    <div className="submission-meta">
-                      <span>Step {item.processing_step}/6</span>
-                      {item.moderation_result &&
-                        item.moderation_result !== "APPROVE" && (
-                          <span>Moderation: {item.moderation_result}</span>
-                        )}
+                    <div className="text-xs text-muted">
+                      Paso {item.processing_step}/6
                     </div>
                     {timelineOpen[item.id] && (
-                      <div className="submission-details">
-                        <div className="submission-actions">
+                      <div className="grid gap-3 border-t border-dashed border-sand/70 pt-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a href="/upload/" className="btn-ghost text-xs">
+                            Subir otro
+                          </a>
                           <button
                             type="button"
-                            className="ghost"
+                            className="btn-icon"
                             onClick={() => handleReprocess(item.id)}
+                            aria-label="Reprocesar audio"
+                            title="Reprocesar audio"
                           >
-                            Reprocess
+                            ↻
                           </button>
-                          <a href="/upload/">Upload another</a>
                         </div>
-                        {item.transcript_preview && (
-                          <div className="transcript-preview">
-                            Transcripcion:{" "}
-                            {truncateText(item.transcript_preview, 220)}
-                          </div>
+                        {item.status === "APPROVED" && (
+                          <a href={`/?story=${item.id}`} className="btn-outline w-fit">
+                            Ver historia completa
+                          </a>
                         )}
-                        <div className="timeline">
+                        {item.moderation_result &&
+                          item.moderation_result !== "APPROVE" && (
+                            <span className="text-xs text-muted">
+                              Moderacion: {item.moderation_result}
+                            </span>
+                          )}
+                        <div className="grid gap-2 text-xs text-muted">
                           {eventsLoading[item.id] && (
-                            <span className="muted">Loading events...</span>
+                            <span>Cargando eventos...</span>
                           )}
                           {!eventsLoading[item.id] && eventsError[item.id] && (
-                            <span className="error">{eventsError[item.id]}</span>
+                            <span className="text-[#a24538]" role="alert">
+                              {eventsError[item.id]}
+                            </span>
                           )}
                           {!eventsLoading[item.id] &&
                             !eventsError[item.id] &&
@@ -565,16 +601,21 @@ function LibraryPage() {
                                 key={
                                   event.id || `${event.event_name}-${event.timestamp}`
                                 }
+                                className="flex items-start justify-between gap-3"
                               >
-                                <strong>{formatEventName(event.event_name)}</strong>
+                                <div>
+                                  <strong className="text-ink">
+                                    {formatEventName(event.event_name)}
+                                  </strong>
+                                  {renderEventDetails(event)}
+                                </div>
                                 <span>{formatTimestamp(event.timestamp)}</span>
-                                {renderEventDetails(event)}
                               </div>
                             ))}
                           {!eventsLoading[item.id] &&
                             !eventsError[item.id] &&
                             (eventsById[item.id] || []).length === 0 && (
-                              <span className="muted">No events yet.</span>
+                              <span>Todavia no hay eventos.</span>
                             )}
                         </div>
                       </div>
@@ -584,19 +625,26 @@ function LibraryPage() {
               })}
             </ul>
             {submissionsLoading && (
-              <p className="muted">Loading submissions...</p>
+              <p className="mt-3 text-sm text-muted">Cargando audios...</p>
             )}
             {!submissionsLoading &&
               filteredSubmissions.length === 0 &&
               !submissionsError && (
-                <p className="muted">
+                <p className="mt-3 text-sm text-muted">
                   {statusFilter === "all"
-                    ? "No submissions yet."
-                    : "No submissions in this view."}{" "}
-                  <a href="/upload/">Upload one</a>.
+                    ? "Todavia no hay audios."
+                    : "No hay audios en este filtro."}{" "}
+                  <a href="/upload/" className="underline">
+                    Subi uno
+                  </a>
+                  .
                 </p>
               )}
-            {submissionsError && <p className="error">{submissionsError}</p>}
+            {submissionsError && (
+              <p className="mt-3 text-sm text-[#a24538]" role="alert">
+                {submissionsError}
+              </p>
+            )}
           </div>
         </section>
       )}
@@ -604,14 +652,20 @@ function LibraryPage() {
   );
 }
 
+function getSubmissionTitle(item) {
+  if (!item) return "Sin titulo";
+  return item.title || item.summary || "Sin titulo";
+}
+
 function describeSubmission(item) {
-  if (item.status === "REJECTED") return "Rejected by moderation";
-  if (item.status === "QUARANTINED") return "Quarantined for review";
-  if (item.status === "APPROVED") return "Published";
-  if (item.status === "UPLOADED") return "Queued for processing";
+  if (item.status === "REJECTED") return "Rechazado por moderacion";
+  if (item.status === "QUARANTINED") return "En revision";
+  if (item.status === "APPROVED") return "Publicado";
+  if (item.status === "CREATED") return "Listo para subir";
+  if (item.status === "UPLOADED") return "En cola para procesar";
   if (item.status === "PROCESSING") {
-    const label = STEP_LABELS[item.processing_step] || "Processing";
-    return `Processing · ${label}`;
+    const label = STEP_LABELS[item.processing_step] || "Procesando";
+    return `Procesando · ${label}`;
   }
   return item.status;
 }
@@ -636,7 +690,20 @@ function formatTimestamp(value) {
 }
 
 function formatEventName(name) {
-  if (!name) return "Event";
+  if (!name) return "Evento";
+  const map = {
+    "audio.uploaded": "Subido",
+    "audio.normalized": "Normalizado",
+    "audio.transcribed": "Transcripto",
+    "audio.moderated": "Moderado",
+    "audio.tagged": "Etiquetado",
+    "audio.anonymized": "Audio ajustado",
+    "audio.published": "Publicado",
+    "audio.rejected": "Rechazado",
+    "audio.quarantined": "En revision",
+    "audio.reprocess_requested": "Reproceso pedido"
+  };
+  if (map[name]) return map[name];
   const clean = name.replace("audio.", "").replace(/_/g, " ");
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
@@ -644,31 +711,52 @@ function formatEventName(name) {
 function renderEventDetails(event) {
   if (!event?.payload) return null;
   if (event.event_name === "audio.moderated") {
-    const result = event.payload.result || "UNKNOWN";
+    const result = formatModerationResult(event.payload.result);
     const flagged = event.payload.flagged;
     const categories = event.payload.categories || {};
     const flaggedCategories = Object.keys(categories).filter(
       (key) => categories[key]
     );
     const detail = flaggedCategories.length
-      ? `Flagged: ${flaggedCategories.join(", ")}`
+      ? `Marcado: ${flaggedCategories.join(", ")}`
       : flagged
-        ? "Flagged"
+        ? "Marcado"
         : "";
     return (
-      <em className="event-detail">
+      <em className="mt-1 block text-[11px] text-muted">
         {result}
         {detail ? ` · ${detail}` : ""}
       </em>
     );
   }
   if (event.event_name === "audio.rejected") {
-    return <em className="event-detail">Rejected</em>;
+    return <em className="mt-1 block text-[11px] text-muted">Rechazado</em>;
   }
   if (event.event_name === "audio.quarantined") {
-    return <em className="event-detail">Quarantined</em>;
+    return <em className="mt-1 block text-[11px] text-muted">En revision</em>;
   }
   return null;
+}
+
+function formatModerationResult(result) {
+  if (!result) return "DESCONOCIDO";
+  const map = {
+    APPROVE: "Aprobado",
+    REJECT: "Rechazado",
+    QUARANTINE: "En revision"
+  };
+  return map[result] || result;
+}
+
+function getStatusDotClass(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "APPROVED") return "bg-emerald-600";
+  if (normalized === "REJECTED") return "bg-[#a24538]";
+  if (normalized === "QUARANTINED") return "bg-amber-500";
+  if (normalized === "PROCESSING") return "bg-slate-400";
+  if (normalized === "UPLOADED") return "bg-slate-400";
+  if (normalized === "CREATED") return "bg-slate-400";
+  return "bg-ink";
 }
 
 export default LibraryPage;

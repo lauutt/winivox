@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import shutil
@@ -24,6 +25,8 @@ STEPS = {
     "anonymize": 5,
     "publish": 6,
 }
+
+logger = logging.getLogger("worker.processing")
 
 ANON_SEMITONES = {
     "OFF": 0,
@@ -78,6 +81,32 @@ def normalize_audio(input_path: str, output_path: str) -> None:
             shutil.copyfile(input_path, output_path)
 
 
+def encode_transcription_audio(input_path: str, output_path: str) -> str:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_path,
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "64k",
+        output_path,
+    ]
+    if _run(cmd):
+        try:
+            if os.path.getsize(output_path) > 0:
+                return output_path
+        except OSError:
+            pass
+    logger.warning("Failed to encode audio for transcription, using normalized file")
+    return input_path
+
+
 def pitch_shift_audio(input_path: str, output_path: str, semitones: int) -> None:
     if semitones == 0:
         shutil.copyfile(input_path, output_path)
@@ -123,6 +152,7 @@ def process_submission(db: Session, submission_id: str) -> None:
         original_ext = os.path.splitext(submission.original_audio_key)[1] or ".bin"
         original_path = os.path.join(tmpdir, f"original{original_ext}")
         normalized_path = os.path.join(tmpdir, "normalized.wav")
+        transcribe_path = os.path.join(tmpdir, "transcribe.m4a")
         anonymized_path = os.path.join(tmpdir, "anonymized.wav")
 
         s3_client.download_file(
@@ -136,10 +166,22 @@ def process_submission(db: Session, submission_id: str) -> None:
             record_event(db, "audio.normalized", submission.id, {})
 
         if submission.processing_step < STEPS["transcribe"]:
-            transcript = transcribe_audio(normalized_path)
+            transcript_source = encode_transcription_audio(
+                normalized_path,
+                transcribe_path,
+            )
+            transcript = transcribe_audio(transcript_source)
             submission.transcript_preview = transcript
             submission.processing_step = STEPS["transcribe"]
             db.commit()
+            if transcript:
+                logger.info(
+                    "Transcribed submission %s (chars=%s)",
+                    submission.id,
+                    len(transcript),
+                )
+            else:
+                logger.warning("Transcription empty for submission %s", submission.id)
             record_event(
                 db,
                 "audio.transcribed",
@@ -170,18 +212,25 @@ def process_submission(db: Session, submission_id: str) -> None:
                 return
 
         if submission.processing_step < STEPS["tag"]:
-            summary, tags, used_llm = generate_metadata(
+            title, summary, tags, viral_analysis, used_llm = generate_metadata(
                 submission.transcript_preview or ""
             )
+            submission.title = title
             submission.summary = summary
             submission.tags = tags
+            submission.viral_analysis = viral_analysis
             submission.processing_step = STEPS["tag"]
             db.commit()
             record_event(
                 db,
                 "audio.tagged",
                 submission.id,
-                {"tags": tags, "summary": summary, "llm_used": used_llm},
+                {
+                    "title": title,
+                    "summary": summary,
+                    "tags": tags,
+                    "llm_used": used_llm,
+                },
             )
 
         if submission.processing_step < STEPS["anonymize"] or submission.processing_step < STEPS["publish"]:

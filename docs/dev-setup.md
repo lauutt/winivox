@@ -27,13 +27,14 @@ Frontend routes:
 - Feed: http://localhost:5173/
 - Upload: http://localhost:5173/upload/
 - Library: http://localhost:5173/library/
+- Historia: http://localhost:5173/?story={id}
 
 ## Notes
 
 - Audio upload goes direct to MinIO via presigned URLs.
 - Worker processes audio and publishes anonymized copies.
 - Transcripcion y moderacion real con OpenAI.
-- Tagging + summary usan OpenAI cuando `OPENAI_API_KEY` esta seteada.
+- Title + summary + viral_analysis usan OpenAI cuando `OPENAI_API_KEY` esta seteada.
 - Modelos configurables: `OPENAI_TRANSCRIBE_MODEL`, `OPENAI_METADATA_MODEL`,
   `OPENAI_MODERATION_MODEL`.
 - `MINIO_PUBLIC_ENDPOINT` should point to `http://localhost:9000` for browser access.

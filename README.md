@@ -30,7 +30,7 @@ Demostrar:
 - Frontend React (JS, sin TypeScript)
 - Storage local S3-compatible (MinIO)
 - Pitch shifting real para anonimizar voz
-- Moderación / tagging / ASR en modo mock
+- Moderacion / tagging / ASR via OpenAI (fallback si falta key)
 
 ---
 
@@ -51,4 +51,16 @@ Demostrar:
 - **Nada que no se pueda reemplazar**
 
 Este repo es una base limpia para evolucionar a MVP sin reescribir todo.
+
+---
+
+## Tests
+
+Para cambios en frontend:
+- `cd frontend`
+- `npm test`
+
+Para cambios en backend:
+- `cd backend`
+- `pytest`
 # winivox

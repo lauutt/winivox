@@ -50,7 +50,7 @@ def list_events(
             event_name=e.event_name,
             submission_id=e.submission_id,
             timestamp=e.timestamp,
-            payload=e.payload,
+            payload=_sanitize_payload(e.payload),
         )
         for e in events
     ]
@@ -94,7 +94,7 @@ async def stream_events(
                     "event_name": event.event_name,
                     "submission_id": event.submission_id,
                     "timestamp": event.timestamp.isoformat(),
-                    "payload": event.payload,
+                    "payload": _sanitize_payload(event.payload),
                 }
                 yield _format_sse(payload, event.id)
             yield ": keepalive\n\n"
@@ -130,6 +130,16 @@ def _fetch_events(
         if since:
             query = query.filter(Event.timestamp > since)
         return query.order_by(Event.timestamp.asc(), Event.id.asc()).limit(200).all()
+
+
+def _sanitize_payload(payload: Optional[dict]) -> Optional[dict]:
+    if not isinstance(payload, dict):
+        return payload
+    if "viral_analysis" not in payload:
+        return payload
+    cleaned = dict(payload)
+    cleaned.pop("viral_analysis", None)
+    return cleaned
 
 
 def _format_sse(payload: dict, event_id: Optional[str]) -> str:

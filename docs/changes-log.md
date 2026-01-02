@@ -1,5 +1,28 @@
 # Changes log
 
+## 2026-01-01
+
+- Frontend: el filtro de tags vive en el lateral derecho (fusionado con la guia de temas).
+- Worker: crea un audio comprimido para transcripcion (m4a) y usa fallback al normalizado si falla.
+- Worker: transcripcion vuelve a usar el audio normalizado para evitar error con `.opus`.
+- Worker: transcripcion usa el audio original (sin normalizar) para soportar `.opus` directo.
+- Upload: refactor a flujo de 2 pasos (selección → configuración)
+- Upload: archivo se sube a MinIO ANTES de elegir parámetros
+- Backend: POST /submissions ya no requiere anonymization_mode en body
+- Backend: POST /submissions/{id}/uploaded ahora recibe configuración completa
+- Backend: nuevo endpoint DELETE /submissions/{id} para cancelar upload
+- DB: agregados campos description y tags_suggested en audio_submissions
+- Frontend: UploadPage con step 1 (upload) y step 2 (configuración)
+- Frontend: botón "Cancelar" descarta submission y limpia UI
+- Frontend: nuevos campos opcionales: descripción/contexto y tags sugeridos
+
+## 2026-01-01 (anterior)
+
+- Docs: flujo para agentes (`docs/agent-flow.md`) y snapshot de estado (`docs/agent-status.md`).
+- Docs: alineado OpenAI en `README.md` y `docs/architecture.md`.
+- AGENTS: actualizado provider OpenAI y regla de actualizar `docs/agent-status.md`.
+- Script: `scripts/verify-e2e.sh` recuerda actualizar `docs/agent-status.md`.
+
 ## 2025-12-31
 
 - Agregado `claude.md` con guardrails de documentacion.
@@ -51,3 +74,19 @@
 - Library: streaming realtime con fallback a polling y estado de conexion.
 - MinIO: init movido a `infra/minio-init.sh` + `MINIO_CORS_ORIGINS`.
 - Script: `scripts/verify-e2e.sh` para validar el flujo end-to-end.
+- Frontend: UI simplificada y en espanol para publico general.
+- Frontend: textos y labels en espanol + mejoras basicas de accesibilidad.
+- Feed: cada audio tiene pagina propia (query `?story=ID`) con transcripcion completa.
+- Feed: la transcripcion ya no aparece en cards, solo en la pagina de historia.
+- Feed: abrir historia mantiene la radio activa.
+- Library: ya no muestra transcripcion; linkea a historia publicada.
+- Feed: botones de refresh en icono para etiquetas e historias.
+- API: `GET /feed/{id}` devuelve detalle publico + transcripcion.
+- API: `GET /feed/tags` soporta `limit` y rota etiquetas.
+- Frontend: copy enfocado en radio de la comunidad y subida de audios, sin menciones de anonimizado en UI.
+- LLM: title en primera persona + summary + viral_analysis (0-100) con soporte en pipeline y UI (mensaje >85 + seccion de baja serendipia).
+- API/UI: viral_analysis ya no se expone; submissions incluyen `high_potential` y feed carga baja serendipia via `GET /feed/low-serendipia`.
+- LLM: si la transcripcion no tiene contenido, se usa metadata generica sin mencionar audio vacio.
+- Worker: logs claros en transcripcion (inicio, largo, vacio o error) y warning si el transcript queda vacio.
+- LLM: si no hay transcript, metadata devuelve la linea "La transcripción falló".
+- Worker: se evita llamar a OpenAI cuando el archivo de audio llega vacio y se loguea el tamaño.

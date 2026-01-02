@@ -1,12 +1,16 @@
 # Vision MVP (resumen)
 
 Este repo apunta a una demo end-to-end simple: historias en audio anonimas,
-con pipeline asincrono, transcripcion+LLM OpenAI para tags/summary, upload fluido y experiencia de escucha tipo radio.
+con pipeline asincrono, transcripcion+LLM OpenAI para title/summary/tags/viral_analysis, upload fluido y experiencia de escucha tipo radio.
 
 Se prioriza:
 - Upload de audio (incluye .opus) y grabacion directa desde microfono.
 - Feedback visible del procesamiento asincrono.
 - Library personal para seguir estados en tiempo real.
+- UI simple para publico general, con controles visibles y claros.
+- UI en espanol para que sea accesible a cualquiera.
+- Cada audio tiene pagina propia con transcripcion completa.
+- Al abrir una historia, el reproductor sigue sonando.
 
 Para evitar duplicar info tecnica, ver:
 - `docs/docs-owner.md` (estado real del codigo)

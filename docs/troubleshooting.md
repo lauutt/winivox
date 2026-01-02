@@ -31,7 +31,8 @@ Errores tipicos:
 
 - Debe consumir la cola y avanzar etapas.
 - Revisar logs si queda en PROCESSING.
-- Si no hay `OPENAI_API_KEY`, tags/summary usan fallback mock.
+- Si no hay `OPENAI_API_KEY`, title/summary/viral_analysis usan fallback mock.
+- Logs de transcripcion se ven en el worker (prefijo `[worker]`).
 
 ## 5) Feed y Library
 

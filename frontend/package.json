@@ -7,17 +7,27 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5173",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
+    "@playwright/test": "^1.57.0",
+    "@testing-library/react": "16.3.1",
     "@vitejs/plugin-react": "4.3.1",
-    "vite": "5.4.6",
-    "@testing-library/react": "14.3.1",
+    "autoprefixer": "10.4.20",
     "jsdom": "24.0.0",
+    "postcss": "8.4.45",
+    "tailwindcss": "3.4.10",
+    "vite": "5.4.6",
     "vitest": "1.6.0"
   }
 }

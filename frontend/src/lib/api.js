@@ -10,7 +10,7 @@ export function authHeaders(token) {
 export async function fetchJson(url, options = {}) {
   const res = await fetch(url, options);
   if (!res.ok) {
-    const error = new Error("Request failed");
+    const error = new Error("Solicitud fallida");
     error.status = res.status;
     throw error;
   }

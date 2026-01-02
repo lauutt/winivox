@@ -1,5 +1,5 @@
 def test_submission_flow(client, monkeypatch):
-    from backend.app.api import submissions as submissions_api
+    from app.api import submissions as submissions_api
 
     monkeypatch.setattr(
         submissions_api,
@@ -14,12 +14,12 @@ def test_submission_flow(client, monkeypatch):
     token = register.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
+    # 1. Create submission (sin anonymization_mode)
     res = client.post(
         "/submissions",
         json={
             "filename": "clip.wav",
             "content_type": "audio/wav",
-            "anonymization_mode": "SOFT",
         },
         headers=headers,
     )
@@ -27,12 +27,22 @@ def test_submission_flow(client, monkeypatch):
     payload = res.json()
     assert payload["upload_url"] == "http://example.com/upload"
 
+    # 2. Mark uploaded CON configuración
     uploaded = client.post(
         f"/submissions/{payload['id']}/uploaded",
+        json={
+            "anonymization_mode": "MEDIUM",
+            "description": "Historia de prueba",
+            "tags_suggested": ["test", "demo"]
+        },
         headers=headers,
     )
     assert uploaded.status_code == 200
-    assert uploaded.json()["status"] == "UPLOADED"
+    data = uploaded.json()
+    assert data["status"] == "UPLOADED"
+    assert data["anonymization_mode"] == "MEDIUM"
+    assert data["description"] == "Historia de prueba"
+    assert data["tags_suggested"] == ["test", "demo"]
 
     listed = client.get("/submissions", headers=headers)
     assert listed.status_code == 200

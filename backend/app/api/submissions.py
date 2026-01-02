@@ -15,9 +15,10 @@ from ..schemas import (
     SubmissionCreate,
     SubmissionResponse,
     SubmissionUploadResponse,
+    SubmissionUploadedRequest,
 )
 from ..settings import settings
-from ..storage import generate_presigned_put
+from ..storage import generate_presigned_put, get_internal_s3_client
 from ..db import get_db
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
@@ -31,14 +32,10 @@ def create_submission(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SubmissionUploadResponse:
-    if payload.anonymization_mode not in ALLOWED_ANON:
-        raise HTTPException(status_code=400, detail="Invalid anonymization mode")
-
     ext = os.path.splitext(payload.filename)[1] or ".bin"
     submission = AudioSubmission(
         user_id=user.id,
         status="CREATED",
-        anonymization_mode=payload.anonymization_mode,
         created_at=datetime.utcnow(),
     )
     db.add(submission)
@@ -71,6 +68,7 @@ def create_submission(
 @router.post("/{submission_id}/uploaded", response_model=SubmissionResponse)
 def mark_uploaded(
     submission_id: str,
+    payload: SubmissionUploadedRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SubmissionResponse:
@@ -82,8 +80,16 @@ def mark_uploaded(
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
 
+    # Validar anonymization_mode
+    if payload.anonymization_mode not in ALLOWED_ANON:
+        raise HTTPException(status_code=400, detail="Invalid anonymization mode")
+
+    # Actualizar submission con datos de configuración
     submission.status = "UPLOADED"
     submission.processing_step = max(submission.processing_step, 0)
+    submission.anonymization_mode = payload.anonymization_mode
+    submission.description = payload.description
+    submission.tags_suggested = payload.tags_suggested
     db.commit()
 
     record_event(
@@ -121,8 +127,10 @@ def reprocess_submission(
     submission.processing_step = 0
     submission.public_audio_key = None
     submission.transcript_preview = None
+    submission.title = None
     submission.summary = None
     submission.tags = None
+    submission.viral_analysis = None
     submission.moderation_result = None
     submission.published_at = None
     db.commit()
@@ -162,3 +170,42 @@ def list_submissions(
         .all()
     )
     return [SubmissionResponse.model_validate(item) for item in submissions]
+
+
+@router.delete("/{submission_id}")
+def cancel_submission(
+    submission_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    submission = (
+        db.query(AudioSubmission)
+        .filter(AudioSubmission.id == submission_id, AudioSubmission.user_id == user.id)
+        .first()
+    )
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Solo permitir cancelar si está en CREATED (no procesado todavía)
+    if submission.status != "CREATED":
+        raise HTTPException(
+            status_code=400, detail="Cannot cancel submission in this state"
+        )
+
+    # Eliminar archivo de MinIO (best effort)
+    if submission.original_audio_key:
+        try:
+            client = get_internal_s3_client()
+            client.delete_object(
+                Bucket=settings.s3_private_bucket, Key=submission.original_audio_key
+            )
+        except Exception:
+            pass  # Ignorar errores de eliminación
+
+    # Eliminar submission de DB
+    db.delete(submission)
+    db.commit()
+
+    record_event(db, "audio.cancelled", submission_id, {})
+
+    return {"status": "cancelled"}

@@ -8,27 +8,31 @@ function AuthPanel({
   error
 }) {
   return (
-    <section className="auth">
-      <h3>Access</h3>
-      <div className="auth-grid">
-        <label>
-          Email
+    <section className="surface">
+      <h3 className="text-lg">Acceso</h3>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <label className="text-xs text-muted">
+          Correo
           <input type="email" value={email} onChange={onEmailChange} />
         </label>
-        <label>
-          Password
+        <label className="text-xs text-muted">
+          Contrasena
           <input type="password" value={password} onChange={onPasswordChange} />
         </label>
-        <div className="auth-actions">
-          <button type="button" onClick={onRegister}>
-            Register
-          </button>
-          <button type="button" onClick={onLogin}>
-            Login
-          </button>
-        </div>
       </div>
-      {error && <p className="error">{error}</p>}
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button type="button" className="btn-primary" onClick={onRegister}>
+          Crear cuenta
+        </button>
+        <button type="button" className="btn-ink" onClick={onLogin}>
+          Ingresar
+        </button>
+      </div>
+      {error && (
+        <p className="mt-3 text-sm text-[#a24538]" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

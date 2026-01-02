@@ -21,11 +21,21 @@ def _copy_stub(input_path, output_path):
 def test_process_submission_approved(db_session, monkeypatch):
     monkeypatch.setattr("worker.processing.get_s3_client", lambda: DummyS3())
     monkeypatch.setattr("worker.processing.normalize_audio", _copy_stub)
+    monkeypatch.setattr(
+        "worker.processing.encode_transcription_audio",
+        lambda input_path, output_path: input_path,
+    )
     monkeypatch.setattr("worker.processing.pitch_shift_audio", _copy_stub)
     monkeypatch.setattr("worker.processing.transcribe_audio", lambda path: "hola mundo")
     monkeypatch.setattr(
         "worker.processing.generate_metadata",
-        lambda transcript: ("resumen", ["historia personal"], True),
+        lambda transcript: (
+            "Fui a la comisaria y me atendieron mal",
+            "resumen",
+            ["historia personal"],
+            88,
+            True,
+        ),
     )
     monkeypatch.setattr(
         "worker.processing.moderate_text",
@@ -40,8 +50,10 @@ def test_process_submission_approved(db_session, monkeypatch):
         original_audio_key="user-1/sub-1/original.wav",
         public_audio_key=None,
         transcript_preview=None,
+        title=None,
         summary=None,
         tags=None,
+        viral_analysis=None,
         moderation_result=None,
         anonymization_mode="SOFT",
         created_at=datetime.utcnow(),
@@ -54,8 +66,10 @@ def test_process_submission_approved(db_session, monkeypatch):
 
     refreshed = db_session.query(AudioSubmission).filter_by(id="sub-1").first()
     assert refreshed.status == "APPROVED"
+    assert refreshed.title == "Fui a la comisaria y me atendieron mal"
     assert refreshed.summary == "resumen"
     assert refreshed.tags == ["historia personal"]
+    assert refreshed.viral_analysis == 88
     assert refreshed.public_audio_key is not None
 
     events = db_session.query(Event).filter_by(submission_id="sub-1").all()
@@ -66,6 +80,10 @@ def test_process_submission_approved(db_session, monkeypatch):
 def test_process_submission_rejected(db_session, monkeypatch):
     monkeypatch.setattr("worker.processing.get_s3_client", lambda: DummyS3())
     monkeypatch.setattr("worker.processing.normalize_audio", _copy_stub)
+    monkeypatch.setattr(
+        "worker.processing.encode_transcription_audio",
+        lambda input_path, output_path: input_path,
+    )
     monkeypatch.setattr("worker.processing.transcribe_audio", lambda path: "bad stuff")
     monkeypatch.setattr(
         "worker.processing.moderate_text",
@@ -80,8 +98,10 @@ def test_process_submission_rejected(db_session, monkeypatch):
         original_audio_key="user-1/sub-2/original.wav",
         public_audio_key=None,
         transcript_preview=None,
+        title=None,
         summary=None,
         tags=None,
+        viral_analysis=None,
         moderation_result=None,
         anonymization_mode="SOFT",
         created_at=datetime.utcnow(),
@@ -94,4 +114,5 @@ def test_process_submission_rejected(db_session, monkeypatch):
 
     refreshed = db_session.query(AudioSubmission).filter_by(id="sub-2").first()
     assert refreshed.status == "REJECTED"
+    assert refreshed.title is None
     assert refreshed.summary is None

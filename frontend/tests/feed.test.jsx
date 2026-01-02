@@ -14,6 +14,12 @@ describe("FeedPage", () => {
             json: async () => ["relato personal", "turno de noche"]
           });
         }
+        if (String(url).includes("/feed/low-serendipia")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => []
+          });
+        }
         return Promise.resolve({
           ok: true,
           json: async () => []
@@ -24,11 +30,11 @@ describe("FeedPage", () => {
 
   it("renders tag filters and feed header", async () => {
     render(<FeedPage />);
-    expect(screen.getByText("Tune by mood")).toBeTruthy();
-    expect(screen.getByText("Latest anonymous drops")).toBeTruthy();
-    expect(screen.getByText("Latest")).toBeTruthy();
-    expect(screen.getByText("Top")).toBeTruthy();
-    expect(screen.getByText("Sleep")).toBeTruthy();
+    expect(screen.getByText("Elegi un tema")).toBeTruthy();
+    expect(screen.getByText("Historias recientes")).toBeTruthy();
+    expect(screen.getByText("Recientes")).toBeTruthy();
+    expect(screen.getByText("Mas votadas")).toBeTruthy();
+    expect(screen.getByText("Temporizador")).toBeTruthy();
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 });

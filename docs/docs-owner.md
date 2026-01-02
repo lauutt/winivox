@@ -1,5 +1,7 @@
 # Docs owner
 
+Para snapshot rapido del estado actual, ver `docs/agent-status.md`.
+
 Este archivo explica el estado real del codigo y el MVP hoy.
 Es la referencia para decidir que falta y que esta listo.
 
@@ -7,19 +9,23 @@ Es la referencia para decidir que falta y que esta listo.
 
 - Stack base funcionando con Docker Compose (API, worker, frontend, Postgres, Redis, MinIO).
 - Upload directo a MinIO (presigned URL), audio no pasa por FastAPI.
-- Pipeline asincrono en worker con anonimizado real, transcripcion OpenAI, moderacion OpenAI y LLM para tags/summary.
+- Pipeline asincrono en worker con anonimizado real, transcripcion OpenAI, moderacion OpenAI y LLM para title/summary/tags/viral_analysis.
 - Frontend React 19.2.3 en JS con UI estilo Bandcamp + Twitter viejo.
 - Frontend es multi-page: `/` (feed), `/upload/` (subida) y `/library/`.
 - Nueva ruta `/library/` para ver estados y timeline de tus audios.
-- Feed incluye summary generado por LLM cuando hay `OPENAI_API_KEY`.
+- Feed incluye title + summary generados por LLM cuando hay `OPENAI_API_KEY`.
+- viral_analysis es interno (no expuesto en API); submissions devuelven `high_potential` y el feed usa `/feed/low-serendipia`.
+- Worker loguea transcripcion (inicio, largo, vacio o error) para diagnostico rapido.
 - Upload valida token contra `GET /auth/me` y limpia si es invalido.
 - Upload soporta `.opus` y grabacion desde microfono.
-- Upload permite elegir nivel de anonimizado (OFF/SOFT/MEDIUM/STRONG).
+- Upload usa flujo de 2 pasos: seleccionar/grabar → configurar → procesar.
+- Configuración de upload: nivel de anonimizado, descripción opcional, tags sugeridos.
 - UI de library hace polling de estados para feedback en tiempo real.
 - UI de library muestra preview de transcripcion por submission.
 - UI de library permite reprocess y ver timeline de eventos.
 - Feed muestra conteo de votos y permite votar.
 - Feed permite filtrar por tags y expone un listado via `GET /feed/tags`.
+- Feed tiene seccion de baja serendipia via `GET /feed/low-serendipia`.
 - Reproductor del feed encadena audios relacionados (por tags) sin pausa.
 - Reproductor muestra "Up next" y boton Skip para seguir la radio.
 - Feed permite ordenar por Latest/Top (basado en votos).
@@ -32,7 +38,14 @@ Es la referencia para decidir que falta y que esta listo.
 - Upload devuelve errores mas claros (storage/queue) y UI los muestra.
 - Library muestra indicador live y barra animada de procesamiento.
 - Library muestra detalles de moderacion en el timeline.
-- UI con copy y visual mas analog/comfort (radio).
+- UI con copy minimo y enfoque en radio de la comunidad.
+- UI en espanol, con controles simples y accesibles.
+- Accesibilidad: feedback con `role="alert"` y estados `role="status"`.
+- Cada audio tiene pagina propia (query `?story=ID`) con transcripcion completa.
+- Feed ya no muestra transcripcion; solo se ve en la pagina de historia.
+- Abrir una historia mantiene el reproductor activo (sin recarga de pagina).
+- Library muestra resumen y estado; la transcripcion solo se ve en historia publicada.
+- `GET /feed/tags` soporta `limit` y rota el set de etiquetas.
 - Library muestra estado de sistemas (DB/Storage/Queue/LLM).
 - Checklist E2E y troubleshooting en `docs/troubleshooting.md`.
 - Feed incluye sleep timer para modo radio nocturno.
@@ -53,13 +66,16 @@ Es la referencia para decidir que falta y que esta listo.
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
-- `POST /submissions` (crea submission + presigned upload)
-- `POST /submissions/{id}/uploaded` (marca upload y encola)
+- `POST /submissions` (crea submission + presigned upload, sin params de configuración)
+- `POST /submissions/{id}/uploaded` (marca upload, recibe configuración y encola)
+- `DELETE /submissions/{id}` (cancela submission en estado CREATED)
 - `POST /submissions/{id}/reprocess` (re-encola y reinicia pipeline)
 - `GET /submissions`
 - `GET /submissions/{id}`
 - `GET /feed` (opcional `?tags=tag1,tag2`)
+- `GET /feed/{id}` (detalle de historia + transcripcion)
 - `GET /feed/tags`
+- `GET /feed/low-serendipia`
 - `POST /votes`
 - `GET /events`
 - `GET /events/stream` (SSE)
@@ -70,7 +86,7 @@ Etapas:
 - normalize (real)
 - transcribe (OpenAI /v1/audio/transcriptions)
 - moderate (OpenAI)
-- tag (LLM -> tags + summary, fallback mock)
+- tag (LLM -> title + summary + tags + viral_analysis, fallback mock)
 - anonymize_voice (real)
 - publish (real)
 
@@ -79,7 +95,7 @@ Estados:
 
 ## Mocks activos
 
-- Tagging + summary (fallback mock si no hay `OPENAI_API_KEY`)
+- Tagging + title/summary/viral_analysis (fallback mock si no hay `OPENAI_API_KEY`)
 
 ## LLM prompts
 

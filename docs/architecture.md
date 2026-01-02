@@ -16,8 +16,8 @@ Arquitectura monolítica desacoplada por colas.
 ### Worker
 - Normalización de audio
 - Transcripción (OpenAI)
-- Moderación (mock)
-- Tagging + summary (LLM OpenAI, fallback mock)
+- Moderación (OpenAI, fallback si falta key)
+- Tagging + title + summary + viral_analysis (LLM OpenAI, fallback mock)
 - Anonimización de voz (real)
 - Publicación
 

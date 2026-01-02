@@ -33,12 +33,22 @@ class AudioSubmission(Base):
     original_audio_key = Column(String, nullable=True)
     public_audio_key = Column(String, nullable=True)
     transcript_preview = Column(Text, nullable=True)
+    title = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     tags = Column(JSON, nullable=True)
+    viral_analysis = Column(Integer, nullable=True)
     moderation_result = Column(String, nullable=True)
     anonymization_mode = Column(String, default="SOFT", nullable=False)
+    description = Column(Text, nullable=True)
+    tags_suggested = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     published_at = Column(DateTime, nullable=True)
+
+    @property
+    def high_potential(self) -> bool | None:
+        if self.viral_analysis is None:
+            return None
+        return self.viral_analysis >= 85
 
 
 class Vote(Base):

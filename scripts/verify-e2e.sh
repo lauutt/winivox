@@ -78,3 +78,4 @@ for i in $(seq 1 40); do
 done
 
 echo "Done. Check /library/ and / for the result."
+echo "Reminder: update docs/agent-status.md with any state change."

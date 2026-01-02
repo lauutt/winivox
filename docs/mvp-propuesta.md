@@ -39,7 +39,7 @@ Basado en los docs existentes y en las reglas de `AGENTS.md`.
 - Worker (proceso pesado):
   - Normalizacion, anonimizado real (ffmpeg + rubberband).
   - Transcripcion y moderacion con OpenAI.
-  - Tagging + summary con OpenAI (fallback mock si falta key).
+  - Title + summary + viral_analysis con OpenAI (fallback mock si falta key).
 - Infra local:
   - Postgres, Redis, MinIO.
 
@@ -63,7 +63,7 @@ Reglas:
 
 - Variables de entorno: `OPENAI_API_KEY`, `OPENAI_TRANSCRIBE_MODEL`, `OPENAI_METADATA_MODEL`.
 - Transcripcion real con OpenAI en el worker.
-- Tag + summary via LLM OpenAI, fallback mock si falta key.
+- Title + summary + viral_analysis via LLM OpenAI, fallback mock si falta key.
 
 ## Frontend (React 19.2.3, JS)
 

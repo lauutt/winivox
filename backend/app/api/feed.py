@@ -1,13 +1,14 @@
+import random
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import AudioSubmission, Vote
-from ..schemas import FeedItem
+from ..schemas import FeedItem, StoryResponse
 from ..storage import generate_presigned_get
 from ..settings import settings
 
@@ -84,7 +85,8 @@ def get_feed(
         response.append(
             FeedItem(
                 id=item.id,
-                transcript_preview=item.transcript_preview,
+                transcript_preview=None,
+                title=item.title,
                 summary=item.summary,
                 tags=item.tags,
                 public_url=public_url,
@@ -97,7 +99,10 @@ def get_feed(
 
 
 @router.get("/tags", response_model=List[str])
-def get_feed_tags(db: Session = Depends(get_db)) -> List[str]:
+def get_feed_tags(
+    limit: int = Query(default=30, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> List[str]:
     if _is_postgres(db):
         tag_expr = func.jsonb_array_elements_text(cast(AudioSubmission.tags, JSONB))
         stmt = (
@@ -105,8 +110,11 @@ def get_feed_tags(db: Session = Depends(get_db)) -> List[str]:
             .where(AudioSubmission.status == "APPROVED")
             .where(AudioSubmission.tags.isnot(None))
         )
-        tags = db.execute(stmt).scalars().all()
-        return sorted({tag for tag in tags if tag})
+        tags = [tag for tag in db.execute(stmt).scalars().all() if tag]
+        unique_tags = list({tag for tag in tags})
+        if len(unique_tags) > limit:
+            return random.sample(unique_tags, limit)
+        return sorted(unique_tags)
 
     rows = (
         db.query(AudioSubmission.tags)
@@ -116,4 +124,84 @@ def get_feed_tags(db: Session = Depends(get_db)) -> List[str]:
     tags: List[str] = []
     for row in rows:
         tags.extend(_normalize_tag_list(row[0]))
-    return sorted(set(tags))
+    unique_tags = list(set(tags))
+    if len(unique_tags) > limit:
+        return random.sample(unique_tags, limit)
+    return sorted(unique_tags)
+
+
+@router.get("/low-serendipia", response_model=List[FeedItem])
+def get_low_serendipia(
+    limit: int = Query(default=6, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> List[FeedItem]:
+    vote_counts = (
+        db.query(Vote.audio_id, func.count(Vote.id).label("vote_count"))
+        .group_by(Vote.audio_id)
+        .subquery()
+    )
+    items = (
+        db.query(AudioSubmission, vote_counts.c.vote_count)
+        .outerjoin(vote_counts, AudioSubmission.id == vote_counts.c.audio_id)
+        .filter(
+            AudioSubmission.status == "APPROVED",
+            AudioSubmission.viral_analysis.isnot(None),
+        )
+        .order_by(AudioSubmission.viral_analysis.asc(), AudioSubmission.published_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    response: List[FeedItem] = []
+    for item, vote_count in items:
+        if not item.public_audio_key:
+            continue
+        public_url = generate_presigned_get(
+            settings.s3_public_bucket, item.public_audio_key
+        )
+        response.append(
+            FeedItem(
+                id=item.id,
+                transcript_preview=None,
+                title=item.title,
+                summary=item.summary,
+                tags=item.tags,
+                public_url=public_url,
+                published_at=item.published_at,
+                vote_count=vote_count or 0,
+            )
+        )
+    return response
+
+
+@router.get("/{audio_id}", response_model=StoryResponse)
+def get_story(audio_id: str, db: Session = Depends(get_db)) -> StoryResponse:
+    vote_counts = (
+        db.query(Vote.audio_id, func.count(Vote.id).label("vote_count"))
+        .group_by(Vote.audio_id)
+        .subquery()
+    )
+    item = (
+        db.query(AudioSubmission, vote_counts.c.vote_count)
+        .outerjoin(vote_counts, AudioSubmission.id == vote_counts.c.audio_id)
+        .filter(AudioSubmission.status == "APPROVED", AudioSubmission.id == audio_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Story not found")
+    submission, vote_count = item
+    if not submission.public_audio_key:
+        raise HTTPException(status_code=404, detail="Story not found")
+    public_url = generate_presigned_get(
+        settings.s3_public_bucket, submission.public_audio_key
+    )
+    return StoryResponse(
+        id=submission.id,
+        title=submission.title,
+        summary=submission.summary,
+        tags=submission.tags,
+        transcript=submission.transcript_preview,
+        public_url=public_url,
+        published_at=submission.published_at,
+        vote_count=vote_count or 0,
+    )

@@ -1,5 +1,9 @@
 import importlib
 import os
+import sys
+
+# Add /app to path for imports
+sys.path.insert(0, '/app')
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,8 +16,8 @@ def app_state(tmp_path_factory):
     os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
     os.environ.setdefault("OPENAI_API_KEY", "")
 
-    from backend.app import db as app_db
-    from backend.app import main
+    from app import db as app_db
+    from app import main
 
     importlib.reload(app_db)
     importlib.reload(main)

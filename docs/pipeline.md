@@ -8,9 +8,9 @@ Pipeline secuencial, asíncrono, idempotente.
 
 1. audio.uploaded
 2. normalize
-3. transcribe (OpenAI)
+3. transcribe (OpenAI, usando audio normalizado comprimido para transcripcion)
 4. moderate (OpenAI)
-5. tag (LLM OpenAI -> tags + summary, fallback mock)
+5. tag (LLM OpenAI -> title + summary + tags + viral_analysis, fallback mock)
 6. anonymize_voice (real)
 7. publish
 

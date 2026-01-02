@@ -7,7 +7,7 @@ describe("UploadPage", () => {
   it("renders auth gate when logged out", async () => {
     vi.stubGlobal("fetch", vi.fn());
     render(<UploadPage />);
-    const message = await screen.findByText("Login required");
+    const message = await screen.findByText("Necesitas iniciar sesion");
     expect(message).toBeTruthy();
   });
 });

@@ -21,3 +21,17 @@ def ensure_schema() -> None:
         conn.execute(
             text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS summary TEXT")
         )
+        conn.execute(
+            text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS title TEXT")
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS viral_analysis INTEGER"
+            )
+        )
+        conn.execute(
+            text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS description TEXT")
+        )
+        conn.execute(
+            text("ALTER TABLE audio_submissions ADD COLUMN IF NOT EXISTS tags_suggested JSON")
+        )

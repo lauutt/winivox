@@ -13,10 +13,14 @@
 - original_audio_key
 - public_audio_key
 - transcript_preview
+- title
 - summary
 - tags
+- viral_analysis (interno)
 - moderation_result
 - anonymization_mode
+- description
+- tags_suggested
 - created_at
 - published_at
 

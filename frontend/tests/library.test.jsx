@@ -7,7 +7,7 @@ describe("LibraryPage", () => {
   it("renders login required when logged out", async () => {
     vi.stubGlobal("fetch", vi.fn());
     render(<LibraryPage />);
-    const message = await screen.findByText("Login required");
+    const message = await screen.findByText("Necesitas iniciar sesion");
     expect(message).toBeTruthy();
   });
 });

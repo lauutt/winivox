@@ -16,7 +16,7 @@ Formato base:
 - audio.normalized
 - audio.transcribed
 - audio.moderated
-- audio.tagged (incluye tags + summary si aplica)
+- audio.tagged (incluye title + summary + tags; viral_analysis se mantiene interno)
 - audio.anonymized
 - audio.published
 - audio.rejected
